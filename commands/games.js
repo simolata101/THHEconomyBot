@@ -53,7 +53,7 @@ module.exports = {
       .setDescription('Number of tickets to buy') // ✅ fixed
       .setRequired(true)
    )
-)
+),
 
 
   execute: async (interaction, { supabase }) => {
@@ -128,3 +128,4 @@ module.exports = {
   }
 
 };
+
