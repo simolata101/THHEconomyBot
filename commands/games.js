@@ -11,14 +11,14 @@ module.exports = {
     )
     .addSubcommand(s =>
       s.setName('gamble')
-        .setDescription('Play a gamble game (coinflip, blackjack, tower)')
+        .setDescription('Play a gamble game (coinflip, rps, tower)')
         .addStringOption(o =>
           o.setName('game')
             .setDescription('Choose a gambling game')
             .setRequired(true)
             .addChoices(
               { name: 'coinflip', value: 'coinflip' },
-              { name: 'blackjack', value: 'blackjack' },
+              { name: 'rock-paper-scissors', value: 'rps' },
               { name: 'tower', value: 'tower' }
             )
         )
@@ -74,7 +74,12 @@ module.exports = {
       const roll = helpers.randomBetween(1, 6);
       const win = roll >= 5;
       const reward = win ? 50 : 0;
-      if (win) await supabase.from('users').update({ balance: supabase.raw('balance + ?', [reward]) }).eq('id', uid);
+      if (win) {
+        await supabase
+          .from('users')
+          .update({ balance: supabase.raw('balance + ?', [reward]) })
+          .eq('id', uid);
+      }
       return interaction.reply(`🎲 You rolled a **${roll}**. ${win ? `You win ${reward} credits!` : 'No reward this time.'}`);
     }
 
@@ -82,11 +87,12 @@ module.exports = {
       const game = interaction.options.getString('game');
       const amount = interaction.options.getInteger('amount');
       const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
+
       if (!user || amount <= 0 || amount > (user.balance || 0)) {
         return interaction.reply({ content: '❌ Invalid amount', ephemeral: true });
       }
 
-      // 🪙 COINFLIP
+      // 🪙 COINFLIP (guess Heads/Tails)
       if (game === 'coinflip') {
         const guessRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('guess_heads').setLabel('🪙 Heads').setStyle(ButtonStyle.Primary),
@@ -106,181 +112,146 @@ module.exports = {
 
           const guess = btn.customId.includes('heads') ? 'Heads' : 'Tails';
           const flip = Math.random() < 0.5 ? 'Heads' : 'Tails';
-          let result;
 
+          let resultText, color;
           if (guess === flip) {
             await supabase.from('users').update({ balance: user.balance + amount }).eq('id', uid);
-            result = `✅ You guessed **${guess}** and the coin landed on **${flip}**!\nYou win **${amount}** credits.`;
+            resultText = `✅ You guessed **${guess}** and the coin landed on **${flip}**!\nYou win **${amount}** credits.`;
+            color = 0x2ecc71;
           } else {
             await supabase.from('users').update({ balance: user.balance - amount }).eq('id', uid);
-            result = `❌ You guessed **${guess}**, but it landed on **${flip}**.\nYou lose **${amount}** credits.`;
+            resultText = `❌ You guessed **${guess}**, but it landed on **${flip}**.\nYou lose **${amount}** credits.`;
+            color = 0xe74c3c;
           }
 
-          const resultEmbed = EmbedBuilder.from(embed)
-            .setDescription(result)
-            .setColor(guess === flip ? 0x2ecc71 : 0xe74c3c);
-
+          const resultEmbed = EmbedBuilder.from(embed).setDescription(resultText).setColor(color);
           await btn.update({ embeds: [resultEmbed], components: [] });
         });
+
+        collector.on('end', async (collected) => {
+          if (collected.size === 0) {
+            try { await msg.edit({ components: [] }); } catch {}
+          }
+        });
+
         return;
       }
 
-      // 🃏 BLACKJACK
-      if (game === 'blackjack') {
-        const deck = helpers.shuffleDeck();
-        let playerHand = [deck.pop(), deck.pop()];
-        let dealerHand = [deck.pop(), deck.pop()];
-
-        const handValue = (hand) => {
-          let value = 0, aces = 0;
-          for (const c of hand) {
-            if (['J', 'Q', 'K'].includes(c.value)) value += 10;
-            else if (c.value === 'A') { value += 11; aces++; }
-            else value += parseInt(c.value);
-          }
-          while (value > 21 && aces > 0) { value -= 10; aces--; }
-          return value;
-        };
-
-        const renderHand = (hand, hideFirst = false) =>
-          hand.map((c, i) => hideFirst && i === 0 ? '🂠' : c.emoji).join(' ');
-
-        let embed = new EmbedBuilder()
-          .setTitle('🃏 Blackjack')
-          .setDescription(`Bet: **${amount}** credits`)
-          .addFields(
-            { name: 'Your Hand', value: `${renderHand(playerHand)} (Value: ${handValue(playerHand)})` },
-            { name: 'Dealer Hand', value: `${renderHand(dealerHand, true)}` }
-          )
-          .setColor(0x3498db);
+      // ✊✋✌️ ROCK-PAPER-SCISSORS (replacing Blackjack)
+      if (game === 'rps') {
+        const choices = ['rock', 'paper', 'scissors'];
+        const emojis = { rock: '✊', paper: '✋', scissors: '✌️' };
 
         const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('hit').setLabel('Hit').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId('stand').setLabel('Stand').setStyle(ButtonStyle.Secondary)
+          new ButtonBuilder().setCustomId('rock').setLabel('Rock ✊').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId('paper').setLabel('Paper ✋').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId('scissors').setLabel('Scissors ✌️').setStyle(ButtonStyle.Primary)
         );
 
+        const embed = new EmbedBuilder()
+          .setTitle('🎮 Rock-Paper-Scissors')
+          .setDescription(`Bet: **${amount}** credits\nPick your move:`)
+          .setColor(0x3498db);
+
         const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
-        const collector = msg.createMessageComponentCollector({ time: 30000 });
+        const collector = msg.createMessageComponentCollector({ time: 15000, max: 1 });
 
         collector.on('collect', async btn => {
           if (btn.user.id !== uid) return btn.reply({ content: 'Not your game!', ephemeral: true });
 
-          if (btn.customId === 'hit') playerHand.push(deck.pop());
-          if (btn.customId === 'stand') return collector.stop('stand');
+          const playerChoice = btn.customId;
+          const botChoice = choices[Math.floor(Math.random() * choices.length)];
 
-          let playerVal = handValue(playerHand);
-          if (playerVal > 21) {
-            await supabase.from('users').update({ balance: user.balance - amount }).eq('id', uid);
-            const bustEmbed = new EmbedBuilder()
-              .setTitle('🃏 Blackjack - Busted')
-              .addFields(
-                { name: 'Your Hand', value: `${renderHand(playerHand)} (Value: ${playerVal})` },
-                { name: 'Dealer Hand', value: `${renderHand(dealerHand)}` }
-              )
-              .setColor(0xe74c3c)
-              .setDescription(`❌ You busted! Lost **${amount}** credits.`);
-            collector.stop();
-            return btn.update({ embeds: [bustEmbed], components: [] });
-          }
-
-          embed = EmbedBuilder.from(embed)
-            .setFields(
-              { name: 'Your Hand', value: `${renderHand(playerHand)} (Value: ${playerVal})` },
-              { name: 'Dealer Hand', value: `${renderHand(dealerHand, true)}` }
-            );
-
-          await btn.update({ embeds: [embed], components: [row] });
-        });
-
-        collector.on('end', async (_, reason) => {
-          if (reason !== 'stand') {
-            try { await msg.edit({ components: [] }); } catch {}
-            return;
-          }
-
-          let dealerVal = handValue(dealerHand);
-          while (dealerVal < 17) {
-            dealerHand.push(deck.pop());
-            dealerVal = handValue(dealerHand);
-          }
-
-          const playerVal = handValue(playerHand);
           let result, color;
-
-          if (dealerVal > 21 || playerVal > dealerVal) {
-            await supabase.from('users').update({ balance: user.balance + amount }).eq('id', uid);
-            result = `✅ You win! Gained **${amount}** credits.`;
-            color = 0x2ecc71;
-          } else if (playerVal === dealerVal) {
-            result = `🤝 It's a tie. Your bet is returned.`;
+          if (playerChoice === botChoice) {
+            result = `🤝 It's a tie! Your bet is returned.\nYou picked ${emojis[playerChoice]} • Bot picked ${emojis[botChoice]}`;
             color = 0xf1c40f;
+          } else if (
+            (playerChoice === 'rock' && botChoice === 'scissors') ||
+            (playerChoice === 'paper' && botChoice === 'rock') ||
+            (playerChoice === 'scissors' && botChoice === 'paper')
+          ) {
+            await supabase.from('users').update({ balance: user.balance + amount }).eq('id', uid);
+            result = `✅ You win! You picked ${emojis[playerChoice]} • Bot picked ${emojis[botChoice]}\nGained **${amount}** credits.`;
+            color = 0x2ecc71;
           } else {
             await supabase.from('users').update({ balance: user.balance - amount }).eq('id', uid);
-            result = `❌ You lose. Lost **${amount}** credits.`;
+            result = `❌ You lose! You picked ${emojis[playerChoice]} • Bot picked ${emojis[botChoice]}\nLost **${amount}** credits.`;
             color = 0xe74c3c;
           }
 
-          const finalEmbed = new EmbedBuilder()
-            .setTitle('🃏 Blackjack - Result')
-            .addFields(
-              { name: 'Your Hand', value: `${renderHand(playerHand)} (Value: ${playerVal})` },
-              { name: 'Dealer Hand', value: `${renderHand(dealerHand)} (Value: ${dealerVal})` }
-            )
+          const resultEmbed = new EmbedBuilder()
+            .setTitle('🎮 Rock-Paper-Scissors - Result')
             .setDescription(result)
             .setColor(color);
 
-          try { await msg.edit({ embeds: [finalEmbed], components: [] }); } catch {}
+          await btn.update({ embeds: [resultEmbed], components: [] });
         });
+
+        collector.on('end', async (collected) => {
+          if (collected.size === 0) {
+            try { await msg.edit({ components: [] }); } catch {}
+          }
+        });
+
         return;
       }
 
       // 🗼 TOWER
       if (game === 'tower') {
         let multiplier = 1;
-        let balance = user.balance;
+        const startingBalance = user.balance;
 
-        const embed = new EmbedBuilder()
-          .setTitle('🗼 Tower Game')
-          .setDescription(`Bet: **${amount}** credits\nMultiplier: **x${multiplier}**`)
-          .setColor(0x9b59b6);
+        const baseEmbed = () =>
+          new EmbedBuilder()
+            .setTitle('🗼 Tower Game')
+            .setDescription(`Bet: **${amount}** credits\nMultiplier: **x${multiplier.toFixed(1)}**`)
+            .setColor(0x9b59b6);
 
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('raise').setLabel('Raise Tower').setStyle(ButtonStyle.Primary),
           new ButtonBuilder().setCustomId('cashout').setLabel('Cash Out').setStyle(ButtonStyle.Success)
         );
 
-        const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
+        const msg = await interaction.reply({ embeds: [baseEmbed()], components: [row], fetchReply: true });
         const collector = msg.createMessageComponentCollector({ time: 30000 });
 
         collector.on('collect', async btn => {
           if (btn.user.id !== uid) return btn.reply({ content: 'Not your game!', ephemeral: true });
 
           if (btn.customId === 'raise') {
+            // 30% chance to fail
             if (Math.random() < 0.3) {
-              await supabase.from('users').update({ balance: balance - amount }).eq('id', uid);
-              const failEmbed = EmbedBuilder.from(embed)
-                .setDescription(`❌ The tower collapsed! You lost **${amount}** credits.`)
+              await supabase.from('users').update({ balance: startingBalance - amount }).eq('id', uid);
+              const failEmbed = new EmbedBuilder()
+                .setTitle('🗼 Tower Game - Collapsed')
+                .setDescription(`❌ The tower collapsed!\nYou lost **${amount}** credits.`)
                 .setColor(0xe74c3c);
               collector.stop();
               return btn.update({ embeds: [failEmbed], components: [] });
-            } else {
-              multiplier += 0.5;
-              const updated = EmbedBuilder.from(embed)
-                .setDescription(`Bet: **${amount}** credits\nMultiplier: **x${multiplier}**\n\nKeep raising or cash out?`);
-              return btn.update({ embeds: [updated], components: [row] });
             }
+            multiplier += 0.5;
+            return btn.update({ embeds: [baseEmbed().setDescription(`Bet: **${amount}** credits\nMultiplier: **x${multiplier.toFixed(1)}**\n\nKeep raising or cash out?`)], components: [row] });
           }
 
           if (btn.customId === 'cashout') {
             const winnings = Math.floor(amount * multiplier);
-            await supabase.from('users').update({ balance: balance + winnings }).eq('id', uid);
-            const winEmbed = EmbedBuilder.from(embed)
-              .setDescription(`✅ You cashed out with multiplier **x${multiplier}**!\nWinnings: **${winnings}** credits.`)
+            await supabase.from('users').update({ balance: startingBalance + winnings }).eq('id', uid);
+            const winEmbed = new EmbedBuilder()
+              .setTitle('🗼 Tower Game - Cashed Out')
+              .setDescription(`✅ You cashed out at **x${multiplier.toFixed(1)}**!\nWinnings: **${winnings}** credits.`)
               .setColor(0x2ecc71);
             collector.stop();
             return btn.update({ embeds: [winEmbed], components: [] });
           }
         });
+
+        collector.on('end', async (collected) => {
+          if (collected.size === 0) {
+            try { await msg.edit({ components: [] }); } catch {}
+          }
+        });
+
         return;
       }
     }
@@ -324,19 +295,4 @@ module.exports = {
   }
 };
 
-// --- helper additions ---
-helpers.shuffleDeck = () => {
-  const suits = ['♠', '♥', '♦', '♣'];
-  const values = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-  const cards = [];
-  for (const s of suits) {
-    for (const v of values) {
-      cards.push({ value: v, suit: s, emoji: `${v}${s}` });
-    }
-  }
-  for (let i = cards.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [cards[i], cards[j]] = [cards[j], cards[i]];
-  }
-  return cards;
-};
+// NOTE: Removed helpers.shuffleDeck since Blackjack is gone.
