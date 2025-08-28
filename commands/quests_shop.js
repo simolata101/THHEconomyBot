@@ -71,10 +71,10 @@ data: new SlashCommandBuilder()
   .addSubcommand(s => 
     s.setName('leaderboard')
      .setDescription('Show leaderboard')
-  )
+  ),
 
 
-  async execute(interaction, { supabase }) {
+  execute: async(interaction, { supabase }) => {
     const sub = interaction.options.getSubcommand();
     const uid = interaction.user.id;
     await helpers.ensureUser(supabase, uid);
@@ -140,4 +140,5 @@ data: new SlashCommandBuilder()
       return interaction.reply(data.map((u, idx)=>`${idx+1}. <@${u.id}> — ${u.balance}`).join('\n'));
     }
   }
+
 };
