@@ -1,0 +1,21 @@
+{
+  "name": "hangout-haven-econ-bot",
+  "version": "1.0.0",
+  "description": "Discord economy bot using Supabase (free tier) and slash commands. Deployable to Railway + GitHub.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "discord.js": "^14.11.0",
+    "dotenv": "^16.0.0",
+    "node-fetch": "^3.0.0",
+    "cron": "^2.2.0",
+    "uuid": "^9.0.0"
+  }
+}
