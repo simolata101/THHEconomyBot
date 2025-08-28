@@ -26,10 +26,10 @@ module.exports = {
 		.addSubcommand(s => 
 		  s.setName('list')
 		   .setDescription('List all existing guilds')
-		)
+		),
 
 
-  async execute(interaction, { supabase }) {
+ execute: async (interaction, { supabase }) => {
     const sub = interaction.options.getSubcommand();
     const uid = interaction.user.id;
     if (sub === 'create') {
@@ -48,4 +48,5 @@ module.exports = {
       return interaction.reply(data.map(g=>`ID:${g.id} - ${g.name} (owner: <@${g.owner}>)`).join('\n'));
     }
   }
+
 };
