@@ -69,6 +69,7 @@ module.exports = {
     const uid = interaction.user.id;
     await helpers.ensureUser(supabase, uid);
 
+    // 🎲 DICE MINIGAME
     if (sub === 'minigame') {
       const roll = helpers.randomBetween(1, 6);
       const win = roll >= 5;
@@ -85,7 +86,7 @@ module.exports = {
         return interaction.reply({ content: '❌ Invalid amount', ephemeral: true });
       }
 
-      // --- COINFLIP ---
+      // 🪙 COINFLIP
       if (game === 'coinflip') {
         const guessRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('guess_heads').setLabel('🪙 Heads').setStyle(ButtonStyle.Primary),
@@ -97,9 +98,8 @@ module.exports = {
           .setDescription(`Bet: **${amount}** credits\nGuess if it will be **Heads** or **Tails**.`)
           .setColor(0xf1c40f);
 
-        await interaction.reply({ embeds: [embed], components: [guessRow] });
+        const msg = await interaction.reply({ embeds: [embed], components: [guessRow], fetchReply: true });
 
-        const msg = await interaction.fetchReply();
         const collector = msg.createMessageComponentCollector({ time: 15000, max: 1 });
         collector.on('collect', async btn => {
           if (btn.user.id !== uid) return btn.reply({ content: 'Not your game!', ephemeral: true });
@@ -125,7 +125,7 @@ module.exports = {
         return;
       }
 
-      // --- BLACKJACK ---
+      // 🃏 BLACKJACK
       if (game === 'blackjack') {
         const deck = helpers.shuffleDeck();
         let playerHand = [deck.pop(), deck.pop()];
@@ -159,21 +159,21 @@ module.exports = {
           new ButtonBuilder().setCustomId('stand').setLabel('Stand').setStyle(ButtonStyle.Secondary)
         );
 
-        await interaction.reply({ embeds: [embed], components: [row] });
-        const msg = await interaction.fetchReply();
+        const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
         const collector = msg.createMessageComponentCollector({ time: 30000 });
 
         collector.on('collect', async btn => {
           if (btn.user.id !== uid) return btn.reply({ content: 'Not your game!', ephemeral: true });
 
           if (btn.customId === 'hit') playerHand.push(deck.pop());
-          if (btn.customId === 'stand') collector.stop('stand');
+          if (btn.customId === 'stand') return collector.stop('stand');
 
           let playerVal = handValue(playerHand);
           if (playerVal > 21) {
             await supabase.from('users').update({ balance: user.balance - amount }).eq('id', uid);
-            const bustEmbed = EmbedBuilder.from(embed)
-              .setFields(
+            const bustEmbed = new EmbedBuilder()
+              .setTitle('🃏 Blackjack - Busted')
+              .addFields(
                 { name: 'Your Hand', value: `${renderHand(playerHand)} (Value: ${playerVal})` },
                 { name: 'Dealer Hand', value: `${renderHand(dealerHand)}` }
               )
@@ -193,7 +193,10 @@ module.exports = {
         });
 
         collector.on('end', async (_, reason) => {
-          if (reason !== 'stand') return;
+          if (reason !== 'stand') {
+            try { await msg.edit({ components: [] }); } catch {}
+            return;
+          }
 
           let dealerVal = handValue(dealerHand);
           while (dealerVal < 17) {
@@ -226,16 +229,15 @@ module.exports = {
             .setDescription(result)
             .setColor(color);
 
-          await msg.edit({ embeds: [finalEmbed], components: [] });
+          try { await msg.edit({ embeds: [finalEmbed], components: [] }); } catch {}
         });
         return;
       }
 
-      // --- TOWER ---
+      // 🗼 TOWER
       if (game === 'tower') {
         let multiplier = 1;
         let balance = user.balance;
-        let playing = true;
 
         const embed = new EmbedBuilder()
           .setTitle('🗼 Tower Game')
@@ -247,8 +249,7 @@ module.exports = {
           new ButtonBuilder().setCustomId('cashout').setLabel('Cash Out').setStyle(ButtonStyle.Success)
         );
 
-        await interaction.reply({ embeds: [embed], components: [row] });
-        const msg = await interaction.fetchReply();
+        const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
         const collector = msg.createMessageComponentCollector({ time: 30000 });
 
         collector.on('collect', async btn => {
@@ -284,6 +285,7 @@ module.exports = {
       }
     }
 
+    // 📈 STOCK
     if (sub === 'stock') {
       const action = interaction.options.getString('action');
       const amount = interaction.options.getInteger('amount') || 1;
@@ -302,12 +304,14 @@ module.exports = {
       }
     }
 
+    // 📦 AUCTION
     if (sub === 'auction') {
       const starting = interaction.options.getInteger('starting');
       const { data } = await supabase.from('shop_items').insert({ name: `Auction by ${uid}`, price: starting }).select().single();
       return interaction.reply(`📦 Created auction item with starting price ${starting}. Item id ${data.id}`);
     }
 
+    // 🎟️ LOTTERY
     if (sub === 'lottery') {
       const tickets = interaction.options.getInteger('tickets');
       const costPer = 10;
