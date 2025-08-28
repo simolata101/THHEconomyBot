@@ -56,7 +56,7 @@ module.exports = {
 )
 
 
-  async execute(interaction, { supabase }) {
+  execute: async (interaction, { supabase }) => {
     const sub = interaction.options.getSubcommand();
     const uid = interaction.user.id;
     await helpers.ensureUser(supabase, uid);
@@ -126,4 +126,5 @@ module.exports = {
       await interaction.reply(`Bought ${tickets} tickets for ${total} credits.`);
     }
   }
+
 };
