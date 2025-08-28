@@ -3,11 +3,31 @@ const { SlashCommandBuilder } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('guild')
-    .setDescription('Guild/clan commands')
-    .addSubcommand(s=>s.setName('create').setDescription('Create a guild').addStringOption(o=>o.setName('name').setRequired(true)))
-    .addSubcommand(s=>s.setName('join').setDescription('Join a guild').addIntegerOption(o=>o.setName('id').setRequired(true)))
-    .addSubcommand(s=>s.setName('list').setDescription('List guilds')),
+		.setName('guild')
+		.setDescription('Guild/clan commands')
+		.addSubcommand(s => 
+		  s.setName('create')
+		   .setDescription('Create a guild')
+		   .addStringOption(o => 
+			 o.setName('name')
+			  .setDescription('The name of the guild to create') // ✅ fixed
+			  .setRequired(true)
+		   )
+		)
+		.addSubcommand(s => 
+		  s.setName('join')
+		   .setDescription('Join a guild')
+		   .addIntegerOption(o => 
+			 o.setName('id')
+			  .setDescription('The ID of the guild to join') // ✅ fixed
+			  .setRequired(true)
+		   )
+		)
+		.addSubcommand(s => 
+		  s.setName('list')
+		   .setDescription('List all existing guilds')
+		)
+
 
   async execute(interaction, { supabase }) {
     const sub = interaction.options.getSubcommand();

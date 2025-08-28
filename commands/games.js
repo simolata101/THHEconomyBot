@@ -4,13 +4,57 @@ const helpers = require('./helpers');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('games')
-    .setDescription('Mini games and gambling')
-    .addSubcommand(s => s.setName('minigame').setDescription('Play a quick minigame (dice)'))
-    .addSubcommand(s => s.setName('gamble').setDescription('Gamble some credits').addIntegerOption(o=>o.setName('amount').setRequired(true)))
-    .addSubcommand(s => s.setName('stock').setDescription('Simulated stock buy/sell').addStringOption(o=>o.setName('action').setRequired(true).addChoices({name:'buy',value:'buy'},{name:'sell',value:'sell'})).addIntegerOption(o=>o.setName('amount')))
-    .addSubcommand(s => s.setName('auction').setDescription('Create an auction (simple)').addIntegerOption(o=>o.setName('starting').setRequired(true)))
-    .addSubcommand(s => s.setName('lottery').setDescription('Buy lottery ticket').addIntegerOption(o=>o.setName('tickets').setRequired(true))),
+.setName('games')
+.setDescription('Mini games and gambling')
+.addSubcommand(s => 
+  s.setName('minigame')
+   .setDescription('Play a quick minigame (dice)')
+)
+.addSubcommand(s => 
+  s.setName('gamble')
+   .setDescription('Gamble some credits')
+   .addIntegerOption(o => 
+     o.setName('amount')
+      .setDescription('The amount of credits to gamble') // ✅ fixed
+      .setRequired(true)
+   )
+)
+.addSubcommand(s => 
+  s.setName('stock')
+   .setDescription('Simulated stock buy/sell')
+   .addStringOption(o => 
+     o.setName('action')
+      .setDescription('Choose whether to buy or sell') // ✅ fixed
+      .setRequired(true)
+      .addChoices(
+        { name:'buy', value:'buy' },
+        { name:'sell', value:'sell' }
+      )
+   )
+   .addIntegerOption(o => 
+     o.setName('amount')
+      .setDescription('The amount of stock to trade') // ✅ fixed
+   )
+)
+.addSubcommand(s => 
+  s.setName('auction')
+   .setDescription('Create an auction (simple)')
+   .addIntegerOption(o => 
+     o.setName('starting')
+      .setDescription('Starting price of the auction') // ✅ fixed
+      .setRequired(true)
+   )
+)
+.addSubcommand(s => 
+  s.setName('lottery')
+   .setDescription('Buy lottery ticket')
+   .addIntegerOption(o => 
+     o.setName('tickets')
+      .setDescription('Number of tickets to buy') // ✅ fixed
+      .setRequired(true)
+   )
+)
+
 
   async execute(interaction, { supabase }) {
     const sub = interaction.options.getSubcommand();

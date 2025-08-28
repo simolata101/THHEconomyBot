@@ -2,17 +2,77 @@ const { SlashCommandBuilder } = require('discord.js');
 const helpers = require('./helpers');
 
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('world')
-    .setDescription('Quests, shop, guilds, crafting, collectibles')
-    .addSubcommand(s=>s.setName('quests').setDescription('List active quests'))
-    .addSubcommand(s=>s.setName('complete').setDescription('Complete a quest by id').addIntegerOption(o=>o.setName('id').setRequired(true)))
-    .addSubcommand(s=>s.setName('shop').setDescription('View shop'))
-    .addSubcommand(s=>s.setName('buy').setDescription('Buy item by id').addIntegerOption(o=>o.setName('id').setRequired(true)))
-    .addSubcommand(s=>s.setName('trade').setDescription('Propose a trade to user').addUserOption(o=>o.setName('target').setRequired(true)).addStringOption(o=>o.setName('offer').setRequired(true)).addStringOption(o=>o.setName('request').setRequired(true)))
-    .addSubcommand(s=>s.setName('craft').setDescription('Craft item').addStringOption(o=>o.setName('recipe').setRequired(true)))
-    .addSubcommand(s=>s.setName('collectible').setDescription('Mint a collectible').addStringOption(o=>o.setName('name').setRequired(true)))
-    .addSubcommand(s=>s.setName('leaderboard').setDescription('Show leaderboard')),
+data: new SlashCommandBuilder()
+  .setName('world')
+  .setDescription('Quests, shop, guilds, crafting, collectibles')
+  .addSubcommand(s => 
+    s.setName('quests')
+     .setDescription('List active quests')
+  )
+  .addSubcommand(s => 
+    s.setName('complete')
+     .setDescription('Complete a quest by ID')
+     .addIntegerOption(o => 
+       o.setName('id')
+        .setDescription('The quest ID to complete') // ✅ fixed
+        .setRequired(true)
+     )
+  )
+  .addSubcommand(s => 
+    s.setName('shop')
+     .setDescription('View shop')
+  )
+  .addSubcommand(s => 
+    s.setName('buy')
+     .setDescription('Buy item by ID')
+     .addIntegerOption(o => 
+       o.setName('id')
+        .setDescription('The item ID to purchase') // ✅ fixed
+        .setRequired(true)
+     )
+  )
+  .addSubcommand(s => 
+    s.setName('trade')
+     .setDescription('Propose a trade to another user')
+     .addUserOption(o => 
+       o.setName('target')
+        .setDescription('The user you want to trade with') // ✅ fixed
+        .setRequired(true)
+     )
+     .addStringOption(o => 
+       o.setName('offer')
+        .setDescription('What you are offering in the trade') // ✅ fixed
+        .setRequired(true)
+     )
+     .addStringOption(o => 
+       o.setName('request')
+        .setDescription('What you are requesting in the trade') // ✅ fixed
+        .setRequired(true)
+     )
+  )
+  .addSubcommand(s => 
+    s.setName('craft')
+     .setDescription('Craft an item using a recipe')
+     .addStringOption(o => 
+       o.setName('recipe')
+        .setDescription('The recipe name to craft') // ✅ fixed
+        .setRequired(true)
+     )
+  )
+  .addSubcommand(s => 
+    s.setName('collectible')
+     .setDescription('Mint a collectible')
+     .addStringOption(o => 
+       o.setName('name')
+        .setDescription('The collectible name to mint') // ✅ fixed
+        .setRequired(true)
+     )
+  )
+  .addSubcommand(s => 
+    s.setName('leaderboard')
+     .setDescription('Show leaderboard')
+  )
+
 
   async execute(interaction, { supabase }) {
     const sub = interaction.options.getSubcommand();
