@@ -41,21 +41,53 @@ module.exports = {
       const last = user?.last_daily ? new Date(user.last_daily) : null;
       const dayMs = 24 * 60 * 60 * 1000;
       let streak = user?.streak || 0;
-
+    
       if (!last || (now - last) > dayMs) {
         const reward = 100 + streak * 10;
         streak = last && (now - last) < (2 * dayMs) ? streak + 1 : 1;
+    
+        let totalCredits = reward;
+        let totalGems = 0;
+        let breakdown = [`Base reward: **${reward} credits**`];
+    
+        // 🏢 Building bonuses
+        const { data: inv } = await supabase
+          .from('inventory')
+          .select('quantity, shop_items(name, effect)')
+          .eq('user_id', uid)
+          .eq('shop_items.type', 'building');
+    
+        if (inv && inv.length > 0) {
+          for (const row of inv) {
+            const qty = row.quantity || 1;
+            const effect = row.shop_items.effect || '';
+            effect.split(',').forEach(e => {
+              const [k, v] = e.split(':');
+              const amount = parseInt(v) * qty;
+              if (k === 'credits_per_day') {
+                totalCredits += amount;
+                breakdown.push(`${row.shop_items.name}: **+${amount} credits**`);
+              }
+              if (k === 'gems_per_day') {
+                totalGems += amount;
+                breakdown.push(`${row.shop_items.name}: **+${amount} gems**`);
+              }
+            });
+          }
+        }
+    
         await supabase.from('users')
           .update({
-            balance: (user.balance || 0) + reward,
+            balance: (user.balance || 0) + totalCredits,
+            gems: (user.gems || 0) + totalGems,
             streak,
             last_daily: now.toISOString()
           })
           .eq('id', uid);
-
+    
         await interaction.reply({
           embeds: [makeEmbed('📅 Daily Reward',
-            `You claimed **${reward} credits**!\nCurrent streak: **${streak}**`, 0x00ffcc)]
+            breakdown.join('\n') + `\n\n**Final Total:** ${totalCredits} credits, ${totalGems} gems\nStreak: **${streak}**`, 0x00ffcc)]
         });
       } else {
         await interaction.reply({
@@ -65,6 +97,7 @@ module.exports = {
       }
       return;
     }
+
 
     if (sub === 'idle') {
       const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
@@ -133,3 +166,4 @@ module.exports = {
     }
   }
 };
+
