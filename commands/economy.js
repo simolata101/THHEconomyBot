@@ -29,10 +29,9 @@ module.exports = {
         { id: uid, balance: pay },
         { onConflict: ['id'], returning: 'minimal' }
       );
-      await interaction.reply({
+      return interaction.reply({
         embeds: [makeEmbed('💼 Work Complete', `You worked and earned **${pay} credits**!`, 0x00ff00)]
       });
-      return;
     }
 
     if (sub === 'daily') {
@@ -85,39 +84,64 @@ module.exports = {
           })
           .eq('id', uid);
     
-        await interaction.reply({
+        return interaction.reply({
           embeds: [makeEmbed('📅 Daily Reward',
             breakdown.join('\n') + `\n\n**Final Total:** ${totalCredits} credits, ${totalGems} gems\nStreak: **${streak}**`, 0x00ffcc)]
         });
       } else {
-        await interaction.reply({
+        return interaction.reply({
           embeds: [makeEmbed('⚠️ Already Claimed', 'You already claimed your daily today. Come back tomorrow.', 0xff0000)],
           ephemeral: true
         });
       }
-      return;
     }
-
 
     if (sub === 'idle') {
       const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
       const newState = !user?.idle;
       await supabase.from('users').update({ idle: newState }).eq('id', uid);
 
-      await interaction.reply({
+      return interaction.reply({
         embeds: [makeEmbed('🛌 Idle Mode', `Idle earnings are now **${newState ? 'ENABLED' : 'DISABLED'}**.`, 0xffff00)]
       });
-      return;
     }
 
     if (sub === 'balance') {
       const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
 
-      await interaction.reply({
-        embeds: [makeEmbed('💰 Your Balance',
-          `**Wallet:** ${user?.balance || 0} credits\n**Gems:** ${user?.gems || 0}\n**Bank:** ${user?.bank_balance || 0}`, 0x0099ff)]
+      // 🔹 Fetch inventory with item effects
+      const { data: inv } = await supabase
+        .from('inventory')
+        .select('quantity, shop_items(name, effect)')
+        .eq('user_id', uid);
+
+      let itemsText = '*(No items owned)*';
+      if (inv && inv.length > 0) {
+        itemsText = inv.map(row => {
+          let effects = '';
+          if (row.shop_items.effect) {
+            effects = row.shop_items.effect
+              .split(',')
+              .map(e => {
+                const [k, v] = e.split(':');
+                if (k === 'credits_per_day') return `+${v} 💰/day`;
+                if (k === 'gems_per_day') return `+${v} 💎/day`;
+                if (k === 'xp_boost') return `+${v}% XP Boost`;
+                return `${k}: ${v}`;
+              })
+              .join(', ');
+          }
+          return `**${row.shop_items.name}** x${row.quantity} → *${effects}*`;
+        }).join('\n');
+      }
+
+      return interaction.reply({
+        embeds: [makeEmbed(
+          '💰 Your Balance',
+          `**Wallet:** ${user?.balance || 0} credits\n**Gems:** ${user?.gems || 0}\n**Bank:** ${user?.bank_balance || 0}\n\n🎒 **Items Owned:**\n${itemsText}`,
+          0x0099ff
+        )]
       });
-      return;
     }
 
     if (sub === 'bank') {
@@ -166,4 +190,3 @@ module.exports = {
     }
   }
 };
-
