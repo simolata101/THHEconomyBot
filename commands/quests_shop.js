@@ -160,7 +160,7 @@ if (sub === 'quests') {
       const { data: shopItem, error } = await supabase
         .from('quests_shop')
         .select('*')
-        .eq('id', shopId)
+        .eq('id', id)
         .single();
       
       if (error || !shopItem) {
@@ -260,4 +260,5 @@ if (sub === 'quests') {
     }
   }
 };
+
 
