@@ -158,7 +158,7 @@ if (sub === 'quests') {
     if (sub === 'buy') {
       const id = interaction.options.getInteger('id');
       const { data: shopItem, error } = await supabase
-        .from('quests_shop')
+        .from('shop_items')
         .select('*')
         .eq('id', id)
         .single();
@@ -260,5 +260,6 @@ if (sub === 'quests') {
     }
   }
 };
+
 
 
