@@ -26,19 +26,6 @@ module.exports = {
         )
     )
     .addSubcommand(s =>
-      s.setName('trade')
-        .setDescription('Propose a trade to another user')
-        .addUserOption(o =>
-          o.setName('target').setDescription('The user you want to trade with').setRequired(true)
-        )
-        .addStringOption(o =>
-          o.setName('offer').setDescription('What you are offering in the trade').setRequired(true)
-        )
-        .addStringOption(o =>
-          o.setName('request').setDescription('What you are requesting in the trade').setRequired(true)
-        )
-    )
-    .addSubcommand(s =>
       s.setName('craft')
         .setDescription('Craft an item using a recipe')
         .addStringOption(o =>
@@ -54,10 +41,83 @@ module.exports = {
     )
     .addSubcommand(s =>
       s.setName('leaderboard').setDescription('Show leaderboard')
+    )
+    // --- New Credit/Gem Management
+    .addSubcommand(s =>
+      s.setName('credit')
+        .setDescription('Manage user credits or gems')
+        .addUserOption(o =>
+          o.setName('target').setDescription('Target user').setRequired(true)
+        )
+        .addStringOption(o =>
+          o.setName('type')
+            .setDescription('Credit or Gem')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Credits', value: 'balance' },
+              { name: 'Gems', value: 'gems' }
+            )
+        )
+        .addStringOption(o =>
+          o.setName('action')
+            .setDescription('Add or Remove')
+            .setRequired(true)
+            .addChoices(
+              { name: 'Add', value: 'add' },
+              { name: 'Remove', value: 'remove' }
+            )
+        )
+        .addIntegerOption(o =>
+          o.setName('amount').setDescription('Amount').setRequired(true)
+        )
+    )
+    // --- Requests Group
+    .addSubcommandGroup(g =>
+      g.setName('request').setDescription('Manage currency exchange requests')
+        .addSubcommand(s =>
+          s.setName('curex')
+            .setDescription('Request a currency exchange')
+            .addStringOption(o =>
+              o.setName('from')
+                .setDescription('Currency to convert from')
+                .setRequired(true)
+                .addChoices(
+                  { name: 'CC', value: 'CC' },
+                  { name: 'FC', value: 'FC' },
+                  { name: 'PT', value: 'PT' },
+                  { name: 'Credits', value: 'Credits' }
+                )
+            )
+            .addStringOption(o =>
+              o.setName('to')
+                .setDescription('Currency to convert to')
+                .setRequired(true)
+                .addChoices(
+                  { name: 'CC', value: 'CC' },
+                  { name: 'FC', value: 'FC' },
+                  { name: 'PT', value: 'PT' },
+                  { name: 'Credits', value: 'Credits' }
+                )
+            )
+            .addIntegerOption(o =>
+              o.setName('amount').setDescription('Amount to convert').setRequired(true)
+            )
+        )
+        .addSubcommand(s =>
+          s.setName('list').setDescription('List all requests')
+        )
+        .addSubcommand(s =>
+          s.setName('done')
+            .setDescription('Mark a request as done')
+            .addIntegerOption(o =>
+              o.setName('id').setDescription('Request ID').setRequired(true)
+            )
+        )
     ),
 
   execute: async (interaction, { supabase }) => {
     const sub = interaction.options.getSubcommand();
+    const subGroup = interaction.options.getSubcommandGroup(false);
     const uid = interaction.user.id;
     await helpers.ensureUser(supabase, uid);
 
@@ -65,7 +125,7 @@ module.exports = {
     const makeEmbed = (title, description, color = 0x2f3136) =>
       new EmbedBuilder().setTitle(title).setDescription(description).setColor(color);
 
-    if (sub === 'quests') {
+if (sub === 'quests') {
       const { data } = await supabase.from('quests').select('*').eq('active', true).limit(10);
       if (!data || data.length === 0)
         return interaction.reply({ embeds: [makeEmbed('📜 Quests', 'No active quests right now.', 0x999999)] });
@@ -111,14 +171,6 @@ module.exports = {
       return interaction.reply({ embeds: [makeEmbed('✅ Purchase Successful', `You bought **${item.name}** for ${item.price} credits.`, 0x00ff00)] });
     }
 
-    if (sub === 'trade') {
-      const target = interaction.options.getUser('target');
-      const offer = interaction.options.getString('offer');
-      const request = interaction.options.getString('request');
-      await supabase.from('trades').insert({ from_user: uid, to_user: target.id, offered: { text: offer }, requested: { text: request } });
-
-      return interaction.reply({ embeds: [makeEmbed('🤝 Trade Proposed', `You offered **${offer}** to ${target.tag} in exchange for **${request}**.`, 0x00ccff)] });
-    }
 
     if (sub === 'craft') {
       const recipe = interaction.options.getString('recipe');
@@ -142,6 +194,57 @@ module.exports = {
 
       const desc = data.map((u, idx) => `**${idx + 1}.** <@${u.id}> — ${u.balance} credits`).join('\n');
       return interaction.reply({ embeds: [makeEmbed('🏆 Top 10 Players', desc, 0xffd700)] });
+    }
+
+    // ===== Credit Management =====
+    if (sub === 'credit') {
+      const target = interaction.options.getUser('target');
+      const type = interaction.options.getString('type'); // balance or gems
+      const action = interaction.options.getString('action');
+      const amount = interaction.options.getInteger('amount');
+
+      const { data: user } = await supabase.from('users').select('*').eq('id', target.id).single();
+      if (!user)
+        return interaction.reply({ embeds: [makeEmbed('❌ User Not Found', `User ${target.tag} not registered.`, 0xff0000)], ephemeral: true });
+
+      let newVal = user[type];
+      if (action === 'add') newVal += amount;
+      if (action === 'remove') newVal = Math.max(0, newVal - amount);
+
+      await supabase.from('users').update({ [type]: newVal }).eq('id', target.id);
+
+      return interaction.reply({ embeds: [makeEmbed('✅ Updated', `${target.tag} now has **${newVal} ${type}**.`, 0x00ff00)] });
+    }
+
+    // ===== Requests =====
+    if (subGroup === 'request') {
+      if (sub === 'curex') {
+        const from = interaction.options.getString('from');
+        const to = interaction.options.getString('to');
+        const amount = interaction.options.getInteger('amount');
+
+        if (from === to)
+          return interaction.reply({ embeds: [makeEmbed('❌ Invalid Request', `From and To currencies cannot be the same.`, 0xff0000)], ephemeral: true });
+
+        await supabase.from('requests').insert({ user_id: uid, from_currency: from, to_currency: to, amount, status: 'pending' });
+
+        return interaction.reply({ embeds: [makeEmbed('📤 Request Submitted', `You requested to exchange **${amount} ${from} → ${to}**.`, 0x00ccff)] });
+      }
+
+      if (sub === 'list') {
+        const { data } = await supabase.from('requests').select('*').order('id', { ascending: false }).limit(15);
+        if (!data || data.length === 0)
+          return interaction.reply({ embeds: [makeEmbed('📋 Requests', 'No requests found.', 0x999999)] });
+
+        const desc = data.map(r => `**ID:** ${r.id} | <@${r.user_id}> | ${r.amount} ${r.from_currency} → ${r.to_currency} | **${r.status.toUpperCase()}**`).join('\n');
+        return interaction.reply({ embeds: [makeEmbed('📋 Requests', desc, 0x00ccff)] });
+      }
+
+      if (sub === 'done') {
+        const id = interaction.options.getInteger('id');
+        await supabase.from('requests').update({ status: 'done' }).eq('id', id);
+        return interaction.reply({ embeds: [makeEmbed('✅ Request Updated', `Request **${id}** marked as done.`, 0x00ff00)] });
+      }
     }
   }
 };
