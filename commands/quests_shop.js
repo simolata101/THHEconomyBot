@@ -157,20 +157,20 @@ if (sub === 'quests') {
 
     if (sub === 'buy') {
       const id = interaction.options.getInteger('id');
-      const { data: shopItem, error } = await supabase
+      const { data: item, error } = await supabase
         .from('shop_items')
         .select('*')
         .eq('id', id)
         .single();
       
-      if (error || !shopItem) {
+      if (error || !item) {
         return interaction.reply({
           content: '⚠️ Could not fetch shop item.',
           flags: 64
         });
       }
 
-      if (!shopItem)
+      if (!item)
         return interaction.reply({ embeds: [makeEmbed('❌ Item Not Found', `Item ID \`${id}\` does not exist.`, 0xff0000)], ephemeral: true });
 
       const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
@@ -260,6 +260,7 @@ if (sub === 'quests') {
     }
   }
 };
+
 
 
 
