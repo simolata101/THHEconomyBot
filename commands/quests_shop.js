@@ -170,7 +170,7 @@ if (sub === 'quests') {
         });
       }
 
-      if (!item)
+      if (!shopItem)
         return interaction.reply({ embeds: [makeEmbed('❌ Item Not Found', `Item ID \`${id}\` does not exist.`, 0xff0000)], ephemeral: true });
 
       const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
@@ -260,6 +260,7 @@ if (sub === 'quests') {
     }
   }
 };
+
 
 
 
