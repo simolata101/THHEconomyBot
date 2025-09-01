@@ -88,6 +88,8 @@ client.once('ready', () => {
           const amount = parseInt(v) * qty;
           if (k === 'credits_per_day') incomeMap[uid].credits += amount / 24; // hourly share
           if (k === 'gems_per_day') incomeMap[uid].gems += amount / 24;
+          if (k === 'credits_per_hour') incomeMap[uid].credits += amount; // hourly share
+          if (k === 'gems_per_hour') incomeMap[uid].gems += amount;
         });
       }
 
@@ -128,3 +130,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
