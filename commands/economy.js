@@ -7,6 +7,7 @@ module.exports = {
     .setDescription('Economy commands (work, daily, idle, bank, balance)')
     .addSubcommand(s => s.setName('work').setDescription('Do a job to earn money'))
     .addSubcommand(s => s.setName('daily').setDescription('Claim daily reward'))
+    .addSubcommand(s => s.setName('hourly').setDescription('Claim hourly reward'))
     .addSubcommand(s => s.setName('idle').setDescription('Toggle idle earnings'))
     .addSubcommand(s => s.setName('balance').setDescription('Show your balances'))
     .addSubcommand(s => s.setName('bank')
@@ -95,6 +96,68 @@ module.exports = {
         });
       }
     }
+
+
+    if (sub === 'hourly') {
+        const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
+        const now = new Date();
+        const last = user?.last_hourly ? new Date(user.last_hourly) : null;
+        const hourMs = 60 * 60 * 1000;
+      
+        if (!last || (now - last) > hourMs) {
+          // 🏆 Base reward (fixed, no streak)
+          const reward = 10; 
+          let totalCredits = reward;
+          let totalGems = 0;
+          let breakdown = [`Base reward: **${reward} credits**`];
+      
+          // 🏢 Building bonuses (per-hour effects)
+          const { data: inv } = await supabase
+            .from('inventory')
+            .select('quantity, shop_items(name, effect)')
+            .eq('user_id', uid)
+            .eq('shop_items.type', 'building');
+      
+          if (inv && inv.length > 0) {
+            for (const row of inv) {
+              const qty = row.quantity || 1;
+              const effect = row.shop_items.effect || '';
+              effect.split(',').forEach(e => {
+                const [k, v] = e.split(':');
+                const amount = parseInt(v) * qty;
+      
+                if (k === 'credits_per_hour') {
+                  totalCredits += amount;
+                  breakdown.push(`${row.shop_items.name}: **+${amount} credits**`);
+                }
+                if (k === 'gems_per_hour') {
+                  totalGems += amount;
+                  breakdown.push(`${row.shop_items.name}: **+${amount} gems**`);
+                }
+              });
+            }
+          }
+      
+          await supabase.from('users')
+            .update({
+              balance: (user.balance || 0) + totalCredits,
+              gems: (user.gems || 0) + totalGems,
+              last_hourly: now.toISOString()
+            })
+            .eq('id', uid);
+      
+          return interaction.reply({
+            embeds: [makeEmbed('⏰ Hourly Reward',
+              breakdown.join('\n') + `\n\n**Final Total:** ${totalCredits} credits, ${totalGems} gems`, 0x00ccff)]
+          });
+        } else {
+          return interaction.reply({
+            embeds: [makeEmbed('⚠️ Already Claimed', 'You already claimed your hourly reward. Come back next hour.', 0xff0000)],
+            ephemeral: true
+          });
+        }
+      }
+
 
     if (sub === 'idle') {
       const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
@@ -190,3 +253,4 @@ module.exports = {
     }
   }
 };
+
