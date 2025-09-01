@@ -146,14 +146,39 @@ if (sub === 'quests') {
       return interaction.reply({ embeds: [makeEmbed('✅ Quest Completed', `You received **${q.reward} credits**!`, 0x00ff00)] });
     }
 
-    if (sub === 'shop') {
-      const { data } = await supabase.from('shop_items').select('*').limit(20);
-      if (!data || data.length === 0)
-        return interaction.reply({ embeds: [makeEmbed('🏪 Shop', 'The shop is empty.', 0x999999)] });
+      if (sub === 'shop') {
+        const { data, error } = await supabase.from('shop_items').select('*').limit(20);
+      
+        if (error) {
+          console.error(error);
+          return interaction.reply({ 
+            embeds: [makeEmbed('❌ Error', 'Could not load the shop items.', 0xff0000)] 
+          });
+        }
+      
+        if (!data || data.length === 0) {
+          return interaction.reply({ 
+            embeds: [makeEmbed('🏪 Shop', 'The shop is empty.', 0x999999)] 
+          });
+        }
+      
+        // Format each item into a field
+        const fields = data.map(i => ({
+          name: `🛒 ${i.name} — 💰 ${i.price} credits`,
+          value: `📌 **ID:** \`${i.id}\`\n✨ **Effect:** ${i.effect || 'None'}`,
+          inline: false
+        }));
+      
+        return interaction.reply({ 
+          embeds: [{
+            title: "🏪 Shop Items",
+            description: "Browse items available for purchase below:",
+            color: 0xffcc00,
+            fields
+          }] 
+        });
+      }
 
-      const desc = data.map(i => `**ID:** \`${i.id}\` — ${i.name} (${i.price} credits)`).join('\n');
-      return interaction.reply({ embeds: [makeEmbed('🏪 Shop Items', desc, 0xffcc00)] });
-    }
 
     if (sub === 'buy') {
       const id = interaction.options.getInteger('id');
@@ -260,6 +285,7 @@ if (sub === 'quests') {
     }
   }
 };
+
 
 
 
