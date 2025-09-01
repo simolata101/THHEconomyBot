@@ -147,56 +147,66 @@ if (sub === 'quests') {
     }
 
       if (sub === 'shop') {
-
-          const { data: items, error } = await supabase.from('shop_items').select('*').limit(20);
-        
-          if (error) {
-            console.error(error);
-            return interaction.reply({ 
-              embeds: [makeEmbed('❌ Error', 'Could not load the shop items.', 0xff0000)] 
-            });
-          }
-        
-          if (!items || items.length === 0) {
-            return interaction.reply({ 
-              embeds: [makeEmbed('🏪 Shop', 'The shop is empty.', 0x999999)] 
-            });
-          }
-        
-          const { data: inv, error: invErr } = await supabase
-            .from('inventory')
-            .select('item_id, shop_items(effect)')
-            .eq('user_id', uid)
-            .eq('shop_items.effect', 'shop_discount:10')
-            .innerJoin('shop_items', 'inventory.item_id', 'shop_items.id');
-        
-          if (invErr) {
-            console.error(invErr);
-          }
-        
-          const hasDiscount = inv && inv.length > 0;
-          const discountRate = hasDiscount ? 0.9 : 1; // 10% off
-        
-          const fields = items.map(i => {
-            const discountedPrice = Math.floor(i.price * discountRate);
-            return {
-              name: `🛒 ${i.name} — 💰 ${discountedPrice} credits${hasDiscount ? ' (-10%)' : ''}`,
-              value: `📌 **ID:** \`${i.id}\`\n✨ **Effect:** ${i.effect || 'None'}`,
-              inline: false
-            };
+        // 1. Load shop items
+        const { data: items, error } = await supabase
+          .from('shop_items')
+          .select('*')
+          .limit(20);
+      
+        if (error) {
+          console.error(error);
+          return interaction.reply({ 
+            embeds: [makeEmbed('❌ Error', 'Could not load the shop items.', 0xff0000)] 
           });
-        
-      return interaction.reply({ 
-        embeds: [{
-          title: "🏪 Shop Items",
-          description: hasDiscount 
-            ? "🎉 You own a discount item! All prices are **10% off**." 
-            : "Browse items available for purchase below:",
-          color: 0xffcc00,
-          fields
-        }] 
-      });
-    }
+        }
+      
+        if (!items || items.length === 0) {
+          return interaction.reply({ 
+            embeds: [makeEmbed('🏪 Shop', 'The shop is empty.', 0x999999)] 
+          });
+        }
+      
+        // 2. Check inventory if user owns discount item
+        const { data: inv, error: invErr } = await supabase
+          .from('inventory')
+          .select(`
+            id,
+            item_id,
+            shop_items!inner(effect)
+          `)
+          .eq('user_id', uid)
+          .eq('shop_items.effect', 'shop_discount:10');
+      
+        if (invErr) {
+          console.error(invErr);
+        }
+      
+        // 3. Determine discount rate
+        const hasDiscount = inv && inv.length > 0;
+        const discountRate = hasDiscount ? 0.9 : 1; // 10% off
+      
+        // 4. Format shop items with discount applied
+        const fields = items.map(i => {
+          const discountedPrice = Math.floor(i.price * discountRate);
+          return {
+            name: `🛒 ${i.name} — 💰 ${discountedPrice} credits${hasDiscount ? ' (-10%)' : ''}`,
+            value: `📌 **ID:** \`${i.id}\`\n✨ **Effect:** ${i.effect || 'None'}`,
+            inline: false
+          };
+        });
+      
+        return interaction.reply({ 
+          embeds: [{
+            title: "🏪 Shop Items",
+            description: hasDiscount 
+              ? "🎉 You own a discount item! All prices are **10% off**." 
+              : "Browse items available for purchase below:",
+            color: 0xffcc00,
+            fields
+          }] 
+        });
+      }
+
 
 
 
@@ -305,6 +315,7 @@ if (sub === 'quests') {
     }
   }
 };
+
 
 
 
