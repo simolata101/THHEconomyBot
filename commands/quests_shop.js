@@ -210,33 +210,90 @@ if (sub === 'quests') {
 
 
 
-    if (sub === 'buy') {
-      const id = interaction.options.getInteger('id');
-      const { data: item, error } = await supabase
-        .from('shop_items')
-        .select('*')
-        .eq('id', id)
-        .single();
-      
-      if (error || !item) {
-        return interaction.reply({
-          content: '⚠️ Could not fetch shop item.',
-          flags: 64
-        });
-      }
+        if (sub === 'buy') {
+          const id = interaction.options.getInteger('id');
+        
+          // 1. Fetch item
+          const { data: item, error } = await supabase
+            .from('shop_items')
+            .select('*')
+            .eq('id', id)
+            .single();
+        
+          if (error || !item) {
+            return interaction.reply({
+              content: '⚠️ Could not fetch shop item.',
+              flags: 64
+            });
+          }
+        
+          // 2. Fetch user
+          const { data: user } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', uid)
+            .single();
+        
+          if (!user) {
+            return interaction.reply({
+              embeds: [makeEmbed('❌ Error', 'User not found.', 0xff0000)],
+              ephemeral: true
+            });
+          }
+        
+          // 3. Check inventory for *any* shop_discount effect
+          const { data: inv, error: invErr } = await supabase
+            .from('inventory')
+            .select(`
+              id,
+              item_id,
+              shop_items!inner(effect)
+            `)
+            .eq('user_id', uid)
+            .like('shop_items.effect', 'shop_discount:%'); // dynamic %
+        
+          if (invErr) console.error(invErr);
+        
+          let discountPercent = 0;
+        
+          if (inv && inv.length > 0) {
+            // Parse "shop_discount:10" → 10
+            const match = inv[0].shop_items.effect.match(/shop_discount:(\d+)/);
+            if (match) {
+              discountPercent = parseInt(match[1], 10);
+            }
+          }
+        
+          // 4. Apply discount
+          const finalPrice = Math.floor(item.price * (1 - discountPercent / 100));
+        
+          // 5. Check balance
+          if ((user.balance || 0) < finalPrice) {
+            return interaction.reply({
+              embeds: [makeEmbed('❌ Insufficient Funds',
+                `You need **${finalPrice} credits** to buy this item.`, 0xff0000)],
+              ephemeral: true
+            });
+          }
+        
+          // 6. Deduct balance & add item
+          await supabase.from('users').update({
+            balance: user.balance - finalPrice
+          }).eq('id', uid);
+        
+          await supabase.from('inventory').insert({
+            user_id: uid,
+            item_id: item.id,
+            quantity: 1
+          });
+        
+          return interaction.reply({
+            embeds: [makeEmbed('✅ Purchase Successful',
+              `You bought **${item.name}** for ${finalPrice} credits${discountPercent > 0 ? ` (${discountPercent}% off 🎉)` : ''}.`,
+              0x00ff00)]
+          });
+        }
 
-      if (!item)
-        return interaction.reply({ embeds: [makeEmbed('❌ Item Not Found', `Item ID \`${id}\` does not exist.`, 0xff0000)], ephemeral: true });
-
-      const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
-      if ((user.balance || 0) < item.price)
-        return interaction.reply({ embeds: [makeEmbed('❌ Insufficient Funds', `You need **${item.price} credits** to buy this item.`, 0xff0000)], ephemeral: true });
-
-      await supabase.from('users').update({ balance: user.balance - item.price }).eq('id', uid);
-      await supabase.from('inventory').insert({ user_id: uid, item_id: item.id, quantity: 1 });
-
-      return interaction.reply({ embeds: [makeEmbed('✅ Purchase Successful', `You bought **${item.name}** for ${item.price} credits.`, 0x00ff00)] });
-    }
 
 
     if (sub === 'craft') {
@@ -315,6 +372,7 @@ if (sub === 'quests') {
     }
   }
 };
+
 
 
 
