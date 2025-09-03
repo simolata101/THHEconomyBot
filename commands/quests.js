@@ -134,12 +134,13 @@ module.exports = {
 
 
     if (sub === 'info') {
-      const day = interaction.options.getInteger('day');
-      const quest = quests.find(q => q.day === day);
-
-      if (!quest) {
-        return interaction.reply({ content: `❌ No quest found for Day ${day}.`, ephemeral: true });
-      }
+        const day = interaction.options.getInteger('day');
+        const quests = interaction.client.getQuests(); // ✅ use global cache
+        const quest = quests.find(q => q.day === day);
+      
+        if (!quest) {
+          return interaction.reply({ content: `❌ No quest found for Day ${day}.`, ephemeral: true });
+        }
 
             // Determine the requirement string based on quest type
             let requirementText = '';
@@ -213,5 +214,6 @@ module.exports = {
   getQuests,
   findQuest
 };
+
 
 
