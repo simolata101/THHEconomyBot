@@ -170,42 +170,93 @@ module.exports = {
     }
 
     if (sub === 'balance') {
-      const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
-
-      // 🔹 Fetch inventory with item effects
-      const { data: inv } = await supabase
-        .from('inventory')
-        .select('quantity, shop_items(name, effect)')
-        .eq('user_id', uid);
-
-      let itemsText = '*(No items owned)*';
-      if (inv && inv.length > 0) {
-        itemsText = inv.map(row => {
-          let effects = '';
-          if (row.shop_items.effect) {
-            effects = row.shop_items.effect
-              .split(',')
-              .map(e => {
-                const [k, v] = e.split(':');
-                if (k === 'credits_per_day') return `+${v} 💰/day`;
-                if (k === 'gems_per_day') return `+${v} 💎/day`;
-                if (k === 'xp_boost') return `+${v}% XP Boost`;
-                return `${k}: ${v}`;
-              })
-              .join(', ');
+        const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
+      
+        // ================= QUEST CHECK =================
+        const quests = await supabase.storage.from('quests').download('quests.json');
+        let questText = "No active quest today.";
+        if (quests.data) {
+          const text = await quests.data.text();
+          const allQuests = JSON.parse(text);
+      
+          const today = new Date().getDate();
+          const quest = allQuests.find(q => q.day === today);
+          if (quest) {
+            // Get progress from quests_status
+            const { data: status } = await supabase
+              .from('quests_status')
+              .select('*')
+              .eq('user_id', uid)
+              .eq('quest_id', today)
+              .maybeSingle();
+      
+            const target = quest.requirements?.count || quest.requirements?.minutes || 0;
+            const progress = status?.progress || 0;
+            const completed = progress >= target;
+      
+            if (completed) {
+              if (!status?.reward_claimed) {
+                // 💰 Award reward now
+                const reward = quest.reward || {}; // { credits: 100, gems: 5 }
+      
+                await supabase.from('users')
+                  .update({
+                    balance: (user.balance || 0) + (reward.credits || 0),
+                    gems: (user.gems || 0) + (reward.gems || 0)
+                  })
+                  .eq('id', uid);
+      
+                // Mark reward as claimed
+                await supabase.from('quests_status')
+                  .update({ reward_claimed: true })
+                  .eq('user_id', uid)
+                  .eq('quest_id', today);
+      
+                questText = `🎉 **Quest Completed!**\nReward claimed: **+${reward.credits || 0} credits, +${reward.gems || 0} gems**`;
+              } else {
+                questText = `✅ Quest already completed and reward claimed.`;
+              }
+            } else {
+              questText = `⏳ Quest in progress: ${progress}/${target}`;
+            }
           }
-          return `**${row.shop_items.name}** x${row.quantity} → *${effects}*`;
-        }).join('\n');
+        }
+      
+        // 🔹 Fetch inventory with item effects
+        const { data: inv } = await supabase
+          .from('inventory')
+          .select('quantity, shop_items(name, effect)')
+          .eq('user_id', uid);
+      
+        let itemsText = '*(No items owned)*';
+        if (inv && inv.length > 0) {
+          itemsText = inv.map(row => {
+            let effects = '';
+            if (row.shop_items.effect) {
+              effects = row.shop_items.effect
+                .split(',')
+                .map(e => {
+                  const [k, v] = e.split(':');
+                  if (k === 'credits_per_day') return `+${v} 💰/day`;
+                  if (k === 'gems_per_day') return `+${v} 💎/day`;
+                  if (k === 'xp_boost') return `+${v}% XP Boost`;
+                  return `${k}: ${v}`;
+                })
+                .join(', ');
+            }
+            return `**${row.shop_items.name}** x${row.quantity} → *${effects}*`;
+          }).join('\n');
+        }
+      
+        return interaction.reply({
+          embeds: [makeEmbed(
+            '💰 Your Balance',
+            `**Wallet:** ${user?.balance || 0} credits\n**Gems:** ${user?.gems || 0}\n**Bank:** ${user?.bank_balance || 0}\n\n🎯 **Quest Status:**\n${questText}\n\n🎒 **Items Owned:**\n${itemsText}`,
+            0x0099ff
+          )]
+        });
       }
 
-      return interaction.reply({
-        embeds: [makeEmbed(
-          '💰 Your Balance',
-          `**Wallet:** ${user?.balance || 0} credits\n**Gems:** ${user?.gems || 0}\n**Bank:** ${user?.bank_balance || 0}\n\n🎒 **Items Owned:**\n${itemsText}`,
-          0x0099ff
-        )]
-      });
-    }
 
     if (sub === 'bank') {
       const action = interaction.options.getString('action');
@@ -253,4 +304,5 @@ module.exports = {
     }
   }
 };
+
 
