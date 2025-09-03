@@ -5,6 +5,7 @@ const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord
 const { createClient } = require('@supabase/supabase-js');
 const cron = require('node-cron');
 
+// Supabase
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
@@ -14,12 +15,37 @@ if (!process.env.DISCORD_TOKEN || !process.env.DISCORD_CLIENT_ID || !SUPABASE_UR
   process.exit(1);
 }
 
-// Supabase client
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Discord client
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.MessageContent
+  ]
+});
 client.commands = new Collection();
+
+// 🔹 In-memory quest cache
+let questsCache = [];
+
+// 🔹 Load quests.json from Supabase Storage
+async function loadQuests() {
+  const { data, error } = await supabase.storage.from('quests').download('quests.json');
+  if (error) {
+    console.error("❌ Failed to load quests.json:", error);
+    questsCache = [];
+    return;
+  }
+  const text = await data.text();
+  questsCache = JSON.parse(text);
+  console.log("✅ Quests loaded from Supabase Storage:", questsCache.length, "quests");
+}
+
+// Export helper to use in commands
+client.getQuests = () => questsCache;
 
 // Load commands
 const commands = [];
@@ -28,10 +54,8 @@ if (!fs.existsSync(commandsPath)) fs.mkdirSync(commandsPath);
 
 for (const file of fs.readdirSync(commandsPath)) {
   if (!file.endsWith('.js')) continue;
-
   const cmd = require(path.join(commandsPath, file));
 
-  // ✅ Validation check
   if (!cmd.data || !cmd.data.name || typeof cmd.execute !== 'function') {
     console.warn(`[WARN] Skipping invalid command file: ${file}`);
     continue;
@@ -41,7 +65,7 @@ for (const file of fs.readdirSync(commandsPath)) {
   commands.push(cmd.data.toJSON());
 }
 
-// Register slash commands (global registration)
+// Register slash commands globally
 (async () => {
   try {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -53,10 +77,13 @@ for (const file of fs.readdirSync(commandsPath)) {
   }
 })();
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  // 🕒 Cron: every hour
+  // 🔹 Load quests on startup
+  await loadQuests();
+
+  // 🕒 Cron: every hour (passive income)
   cron.schedule('0 * * * *', async () => {
     console.log('🏛️ Running passive income cron...');
     try {
@@ -82,13 +109,12 @@ client.once('ready', () => {
 
         if (!incomeMap[uid]) incomeMap[uid] = { credits: 0, gems: 0 };
 
-        // Parse effect string like "credits_per_day:150,gems_per_day:5"
         effect.split(',').forEach(e => {
           const [k, v] = e.split(':');
           const amount = parseInt(v) * qty;
-          if (k === 'credits_per_day') incomeMap[uid].credits += amount / 24; // hourly share
+          if (k === 'credits_per_day') incomeMap[uid].credits += amount / 24;
           if (k === 'gems_per_day') incomeMap[uid].gems += amount / 24;
-          if (k === 'credits_per_hour') incomeMap[uid].credits += amount; // hourly share
+          if (k === 'credits_per_hour') incomeMap[uid].credits += amount;
           if (k === 'gems_per_hour') incomeMap[uid].gems += amount;
         });
       }
@@ -112,13 +138,98 @@ client.once('ready', () => {
   });
 });
 
+// ====================== QUEST TRACKING ======================
+
+// Track VC join times in memory
+const vcJoinTimes = new Map();
+
+// 📝 Track messages for quests
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+
+  const userId = message.author.id;
+  const quests = client.getQuests();
+
+  for (const quest of quests) {
+    if (quest.type !== "messages") continue;
+
+    // Fetch current progress
+    const { data: status } = await supabase
+      .from('quests_status')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('quest_id', quest.id)
+      .single();
+
+    let progress = (status?.progress || 0) + 1;
+    let completed = progress >= quest.target;
+
+    if (status) {
+      await supabase.from('quests_status')
+        .update({ progress, completed })
+        .eq('user_id', userId)
+        .eq('quest_id', quest.id);
+    } else {
+      await supabase.from('quests_status')
+        .insert({ user_id: userId, quest_id: quest.id, progress, completed });
+    }
+  }
+});
+
+// 🎙️ Track VC time
+client.on('voiceStateUpdate', async (oldState, newState) => {
+  const userId = newState.id;
+
+  // User joins a VC
+  if (!oldState.channelId && newState.channelId) {
+    vcJoinTimes.set(userId, Date.now());
+  }
+
+  // User leaves VC
+  if (oldState.channelId && !newState.channelId) {
+    const joinTime = vcJoinTimes.get(userId);
+    if (!joinTime) return;
+
+    const minutes = Math.floor((Date.now() - joinTime) / 60000);
+    vcJoinTimes.delete(userId);
+
+    const quests = client.getQuests();
+    for (const quest of quests) {
+      if (quest.type !== "vc_minutes") continue;
+
+      // Fetch current progress
+      const { data: status } = await supabase
+        .from('quests_status')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('quest_id', quest.id)
+        .single();
+
+      let progress = (status?.progress || 0) + minutes;
+      let completed = progress >= quest.target;
+
+      if (status) {
+        await supabase.from('quests_status')
+          .update({ progress, completed })
+          .eq('user_id', userId)
+          .eq('quest_id', quest.id);
+      } else {
+        await supabase.from('quests_status')
+          .insert({ user_id: userId, quest_id: quest.id, progress, completed });
+      }
+    }
+  }
+});
+
+// =============================================================
+
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const command = client.commands.get(interaction.commandName);
   if (!command) return;
 
   try {
-    await command.execute(interaction, { supabase, client });
+    await command.execute(interaction, { supabase, client, loadQuests });
   } catch (err) {
     console.error('❌ Command error:', err);
     if (interaction.replied || interaction.deferred) {
@@ -130,4 +241,3 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
