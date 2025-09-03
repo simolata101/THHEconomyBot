@@ -154,25 +154,26 @@ client.on('messageCreate', async (message) => {
     if (quest.type !== "messages") continue;
 
     // Fetch current progress
-    const { data: status } = await supabase
+    const { data: status, error } = await supabase
       .from('quests_status')
       .select('*')
       .eq('user_id', userId)
-      .eq('quest_id', quest.id)
+      .eq('quest_id', quest.day) // using quest.day as unique ID
       .single();
 
-    let progress = (status?.progress || 0) + 1;
-    let completed = progress >= quest.target;
+    const target = quest.requirements?.count || 0;
+    const progress = (status?.progress || 0) + 1;
+    const completed = progress >= target;
 
-    if (status) {
-      await supabase.from('quests_status')
-        .update({ progress, completed })
-        .eq('user_id', userId)
-        .eq('quest_id', quest.id);
-    } else {
-      await supabase.from('quests_status')
-        .insert({ user_id: userId, quest_id: quest.id, progress, completed });
-    }
+    const { error: upsertError } = status
+      ? await supabase.from('quests_status')
+          .update({ progress, completed })
+          .eq('user_id', userId)
+          .eq('quest_id', quest.day)
+      : await supabase.from('quests_status')
+          .insert({ user_id: userId, quest_id: quest.day, progress, completed });
+
+    if (upsertError) console.error('❌ Quest insert/update failed (messages):', upsertError);
   }
 });
 
@@ -195,31 +196,33 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
     const quests = client.getQuests();
     for (const quest of quests) {
-      if (quest.type !== "vc_minutes") continue;
+      if (quest.type !== "vc_time") continue;
 
       // Fetch current progress
-      const { data: status } = await supabase
+      const { data: status, error } = await supabase
         .from('quests_status')
         .select('*')
         .eq('user_id', userId)
-        .eq('quest_id', quest.id)
+        .eq('quest_id', quest.day)
         .single();
 
-      let progress = (status?.progress || 0) + minutes;
-      let completed = progress >= quest.target;
+      const target = quest.requirements?.minutes || 0;
+      const progress = (status?.progress || 0) + minutes;
+      const completed = progress >= target;
 
-      if (status) {
-        await supabase.from('quests_status')
-          .update({ progress, completed })
-          .eq('user_id', userId)
-          .eq('quest_id', quest.id);
-      } else {
-        await supabase.from('quests_status')
-          .insert({ user_id: userId, quest_id: quest.id, progress, completed });
-      }
+      const { error: upsertError } = status
+        ? await supabase.from('quests_status')
+            .update({ progress, completed })
+            .eq('user_id', userId)
+            .eq('quest_id', quest.day)
+        : await supabase.from('quests_status')
+            .insert({ user_id: userId, quest_id: quest.day, progress, completed });
+
+      if (upsertError) console.error('❌ Quest insert/update failed (VC):', upsertError);
     }
   }
 });
+
 
 // =============================================================
 
@@ -241,3 +244,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
