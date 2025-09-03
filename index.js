@@ -143,47 +143,47 @@ client.once('ready', async () => {
 // Track VC join times in memory
 const vcJoinTimes = new Map();
 
-// 📝 Track messages for quests
+// 📝 Track messages for today’s quest
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
   const userId = message.author.id;
   const quests = client.getQuests();
 
-  for (const quest of quests) {
-    if (quest.type !== "messages") continue;
+  // ✅ Only today’s quest
+  const today = new Date().getDate();
+  const quest = quests.find(q => q.day === today && q.type === "messages");
+  if (!quest) return;
 
-    // Fetch current progress
-    const { data: status, error } = await supabase
-      .from('quests_status')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('quest_id', quest.day) // using quest.day as unique ID
-      .maybeSingle();
+  // Fetch current progress
+  const { data: status, error } = await supabase
+    .from('quests_status')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('quest_id', today)
+    .maybeSingle();
 
-    const target = quest.requirements?.count || 0;
-    const progress = (status?.progress || 0) + 1;
-    const completed = progress >= target;
+  const target = quest.requirements?.count || 0;
+  const progress = (status?.progress || 0) + 1;
+  const completed = progress >= target;
 
-    const { error: upsertError } = status
-      ? await supabase.from('quests_status')
-          .update({ progress, completed })
-          .eq('user_id', userId)
-          .eq('quest_id', quest.day)
-      : await supabase.from('quests_status')
-          .insert({ user_id: userId, quest_id: quest.day, progress, completed });
+  const { error: upsertError } = status
+    ? await supabase.from('quests_status')
+        .update({ progress, completed })
+        .eq('user_id', userId)
+        .eq('quest_id', today)
+    : await supabase.from('quests_status')
+        .insert({ user_id: userId, quest_id: today, progress, completed });
 
-    if (upsertError) console.error('❌ Quest insert/update failed:', upsertError);
-    else console.log(`✅ Quest progress updated: user=${userId}, quest=${quest.day}, progress=${progress}`);
-
-  }
+  if (upsertError) console.error('❌ Quest insert/update failed:', upsertError);
+  else console.log(`✅ Quest progress updated: user=${userId}, quest=Day ${today}, progress=${progress}`);
 });
 
-// 🎙️ Track VC time
+// 🎙️ Track VC time for today’s quest
 client.on('voiceStateUpdate', async (oldState, newState) => {
   const userId = newState.id;
 
-  // User joins a VC
+  // User joins VC
   if (!oldState.channelId && newState.channelId) {
     vcJoinTimes.set(userId, Date.now());
   }
@@ -197,33 +197,35 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     vcJoinTimes.delete(userId);
 
     const quests = client.getQuests();
-    for (const quest of quests) {
-      if (quest.type !== "vc_time") continue;
+    const today = new Date().getDate();
+    const quest = quests.find(q => q.day === today && q.type === "vc_time");
+    if (!quest) return;
 
-      // Fetch current progress
-      const { data: status, error } = await supabase
-        .from('quests_status')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('quest_id', quest.day)
-        .single();
+    // Fetch current progress
+    const { data: status, error } = await supabase
+      .from('quests_status')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('quest_id', today)
+      .maybeSingle();
 
-      const target = quest.requirements?.minutes || 0;
-      const progress = (status?.progress || 0) + minutes;
-      const completed = progress >= target;
+    const target = quest.requirements?.minutes || 0;
+    const progress = (status?.progress || 0) + minutes;
+    const completed = progress >= target;
 
-      const { error: upsertError } = status
-        ? await supabase.from('quests_status')
-            .update({ progress, completed })
-            .eq('user_id', userId)
-            .eq('quest_id', quest.day)
-        : await supabase.from('quests_status')
-            .insert({ user_id: userId, quest_id: quest.day, progress, completed });
+    const { error: upsertError } = status
+      ? await supabase.from('quests_status')
+          .update({ progress, completed })
+          .eq('user_id', userId)
+          .eq('quest_id', today)
+      : await supabase.from('quests_status')
+          .insert({ user_id: userId, quest_id: today, progress, completed });
 
-      if (upsertError) console.error('❌ Quest insert/update failed (VC):', upsertError);
-    }
+    if (upsertError) console.error('❌ Quest insert/update failed (VC):', upsertError);
+    else console.log(`✅ VC quest progress updated: user=${userId}, quest=Day ${today}, progress=${progress}`);
   }
 });
+
 
 
 // =============================================================
@@ -246,5 +248,6 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
