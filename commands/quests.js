@@ -97,14 +97,22 @@ module.exports = {
         .setColor(0x5865F2)
         .setTimestamp();
 
-      progress.forEach(p => {
-        const quest = findQuest(p.quest_id);
-        embed.addFields({
-          name: quest ? quest.name : `Quest ${p.quest_id}`,
-          value: `Progress: **${p.progress || 0}/${quest?.requirement || '?'}**\nStatus: **${p.completed ? "✅ Completed" : "⏳ Ongoing"}**`,
-          inline: false
+        progress.forEach(p => {
+          const quest = quests.find(q => q.day === p.quest_id);
+          if (!quest) return;
+        
+          // Determine the target based on quest type
+          let target = 0;
+          if (quest.type === 'messages') target = quest.requirements?.count || 0;
+          if (quest.type === 'vc_time') target = quest.requirements?.minutes || 0;
+        
+          embed.addFields({
+            name: quest.name,
+            value: `Progress: **${p.progress || 0}/${target}**\nStatus: **${p.completed ? "✅ Completed" : "⏳ Ongoing"}**`,
+            inline: false
+          });
         });
-      });
+
 
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
@@ -117,16 +125,29 @@ module.exports = {
         return interaction.reply({ content: `❌ No quest found for Day ${day}.`, ephemeral: true });
       }
 
-      const embed = new EmbedBuilder()
-        .setTitle(`📜 Quest for Day ${day}`)
-        .setColor(0x00AE86)
-        .addFields(
-          { name: "Name", value: quest.name, inline: false },
-          { name: "Description", value: quest.description || "No description", inline: false },
-          { name: "Requirement", value: quest.requirement?.toString() || "N/A", inline: true },
-          { name: "Reward", value: quest.reward || "N/A", inline: true }
-        )
-        .setFooter({ text: "Complete this quest before the day ends!" });
+            // Determine the requirement string based on quest type
+            let requirementText = '';
+            if (quest.type === 'messages') {
+              requirementText = `${quest.requirements?.count || 0} messages`;
+            } else if (quest.type === 'vc_time') {
+              const minutes = quest.requirements?.minutes || 0;
+              // Convert minutes to hours+minutes for readability
+              const hours = Math.floor(minutes / 60);
+              const mins = minutes % 60;
+              requirementText = hours > 0 ? `${hours}h ${mins}m in VC` : `${mins}m in VC`;
+            }
+            
+            const embed = new EmbedBuilder()
+              .setTitle(`📜 Quest for Day ${day}`)
+              .setColor(0x00AE86)
+              .addFields(
+                { name: "Name", value: quest.name, inline: false },
+                { name: "Description", value: quest.description || "No description", inline: false },
+                { name: "Requirement", value: requirementText || "N/A", inline: true },
+                { name: "Reward", value: quest.reward?.toString() || "N/A", inline: true }
+              )
+              .setFooter({ text: "Complete this quest before the day ends!" });
+
 
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
@@ -176,3 +197,4 @@ module.exports = {
   getQuests,
   findQuest
 };
+
