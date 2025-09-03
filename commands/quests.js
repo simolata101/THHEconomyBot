@@ -81,7 +81,6 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
 
     if (sub === 'status') {
-        // Default: the caller
         const targetUser = interaction.options.getUser('user') || interaction.user;
         const uid = targetUser.id;
       
@@ -99,28 +98,39 @@ module.exports = {
           return interaction.reply({ content: `ℹ️ ${targetUser.username} has no quest progress yet.`, ephemeral: true });
         }
       
+        console.log("📊 Quest progress from DB:", progress);
+      
         const embed = new EmbedBuilder()
           .setTitle(`${targetUser.username}'s Quest Progress`)
           .setColor(0x5865F2)
           .setTimestamp();
       
         progress.forEach(p => {
-          const quest = quests.find(q => q.day === p.quest_id);
-          if (!quest) return;
+          // FIX: decide if quest_id matches quest.id or quest.day
+          const quest = quests.find(q => q.id === p.quest_id || q.day === p.quest_id);
+      
+          if (!quest) {
+            embed.addFields({
+              name: `Unknown Quest (ID: ${p.quest_id})`,
+              value: `Progress: **${p.progress || 0}**\nStatus: **${p.completed ? "✅ Completed" : "⏳ Ongoing"}**`,
+              inline: false
+            });
+            return;
+          }
       
           let target = 0;
           if (quest.type === 'messages') target = quest.requirements?.count || 0;
           if (quest.type === 'vc_time') target = quest.requirements?.minutes || 0;
       
           embed.addFields({
-            name: quest.name,
+            name: `📅 Day ${quest.day}: ${quest.name}`,
             value: `Progress: **${p.progress || 0}/${target}**\nStatus: **${p.completed ? "✅ Completed" : "⏳ Ongoing"}**`,
             inline: false
           });
         });
       
-        return interaction.reply({ embeds: [embed], ephemeral: false }); // <-- not hidden so others can see
-    }
+        return interaction.reply({ embeds: [embed], ephemeral: false });
+      }
 
 
     if (sub === 'info') {
