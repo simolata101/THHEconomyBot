@@ -45,9 +45,14 @@ module.exports = {
     .setName('quests')
     .setDescription('Quest-related commands')
     .addSubcommand(s =>
-      s.setName('status')
-        .setDescription('Show your quest progress')
-    )
+    s.setName('status')
+      .setDescription('Show quest progress')
+      .addUserOption(o =>
+        o.setName('user')
+          .setDescription('Check another user’s quest progress')
+          .setRequired(false)
+      )
+  )
     .addSubcommand(s =>
       s.setName('info')
         .setDescription('Show quest info for a given day')
@@ -76,46 +81,47 @@ module.exports = {
     const sub = interaction.options.getSubcommand();
 
     if (sub === 'status') {
-      const uid = interaction.user.id;
-
-      const { data: progress, error } = await supabase
-        .from('quests_status')
-        .select('*')
-        .eq('user_id', uid);
-
-      if (error) {
-        console.error(error);
-        return interaction.reply({ content: "❌ Could not fetch quest status.", ephemeral: true });
-      }
-
-      if (!progress || progress.length === 0) {
-        return interaction.reply({ content: "ℹ️ You have no quest progress yet.", ephemeral: true });
-      }
-
-      const embed = new EmbedBuilder()
-        .setTitle(`${interaction.user.username}'s Quest Progress`)
-        .setColor(0x5865F2)
-        .setTimestamp();
-
+        // Default: the caller
+        const targetUser = interaction.options.getUser('user') || interaction.user;
+        const uid = targetUser.id;
+      
+        const { data: progress, error } = await supabase
+          .from('quests_status')
+          .select('*')
+          .eq('user_id', uid);
+      
+        if (error) {
+          console.error(error);
+          return interaction.reply({ content: "❌ Could not fetch quest status.", ephemeral: true });
+        }
+      
+        if (!progress || progress.length === 0) {
+          return interaction.reply({ content: `ℹ️ ${targetUser.username} has no quest progress yet.`, ephemeral: true });
+        }
+      
+        const embed = new EmbedBuilder()
+          .setTitle(`${targetUser.username}'s Quest Progress`)
+          .setColor(0x5865F2)
+          .setTimestamp();
+      
         progress.forEach(p => {
           const quest = quests.find(q => q.day === p.quest_id);
           if (!quest) return;
-        
-          // Determine the target based on quest type
+      
           let target = 0;
           if (quest.type === 'messages') target = quest.requirements?.count || 0;
           if (quest.type === 'vc_time') target = quest.requirements?.minutes || 0;
-        
+      
           embed.addFields({
             name: quest.name,
             value: `Progress: **${p.progress || 0}/${target}**\nStatus: **${p.completed ? "✅ Completed" : "⏳ Ongoing"}**`,
             inline: false
           });
         });
-
-
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      
+        return interaction.reply({ embeds: [embed], ephemeral: false }); // <-- not hidden so others can see
     }
+
 
     if (sub === 'info') {
       const day = interaction.options.getInteger('day');
@@ -197,4 +203,5 @@ module.exports = {
   getQuests,
   findQuest
 };
+
 
