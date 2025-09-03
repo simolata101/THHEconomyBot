@@ -159,7 +159,7 @@ client.on('messageCreate', async (message) => {
       .select('*')
       .eq('user_id', userId)
       .eq('quest_id', quest.day) // using quest.day as unique ID
-      .single();
+      .maybeSingle();
 
     const target = quest.requirements?.count || 0;
     const progress = (status?.progress || 0) + 1;
@@ -173,7 +173,9 @@ client.on('messageCreate', async (message) => {
       : await supabase.from('quests_status')
           .insert({ user_id: userId, quest_id: quest.day, progress, completed });
 
-    if (upsertError) console.error('❌ Quest insert/update failed (messages):', upsertError);
+    if (upsertError) console.error('❌ Quest insert/update failed:', upsertError);
+    else console.log(`✅ Quest progress updated: user=${userId}, quest=${quest.day}, progress=${progress}`);
+
   }
 });
 
@@ -244,4 +246,5 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
