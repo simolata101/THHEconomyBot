@@ -80,7 +80,7 @@ module.exports = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
 
-    if (sub === 'status') {
+   if (sub === 'status') {
         const targetUser = interaction.options.getUser('user') || interaction.user;
         const uid = targetUser.id;
       
@@ -100,34 +100,38 @@ module.exports = {
       
         console.log("📊 Quest progress from DB:", progress);
       
+        // ✅ Only today's quest
+        const today = new Date().getDate();
+        const todayProgress = progress.find(p => p.quest_id === today);
+      
         const embed = new EmbedBuilder()
           .setTitle(`${targetUser.username}'s Quest Progress`)
           .setColor(0x5865F2)
           .setTimestamp();
       
-        progress.forEach(p => {
-          // FIX: decide if quest_id matches quest.id or quest.day
-          const quest = quests.find(q => q.id === p.quest_id || q.day === p.quest_id);
+        if (!todayProgress) {
+          embed.setDescription(`ℹ️ No progress for today's quest (Day ${today}).`);
+        } else {
+          const quest = quests.find(q => q.day === today);
       
           if (!quest) {
             embed.addFields({
-              name: `Unknown Quest (ID: ${p.quest_id})`,
-              value: `Progress: **${p.progress || 0}**\nStatus: **${p.completed ? "✅ Completed" : "⏳ Ongoing"}**`,
+              name: `Unknown Quest (ID: ${todayProgress.quest_id})`,
+              value: `Progress: **${todayProgress.progress || 0}**\nStatus: **${todayProgress.completed ? "✅ Completed" : "⏳ Ongoing"}**`,
               inline: false
             });
-            return;
+          } else {
+            let target = 0;
+            if (quest.type === 'messages') target = quest.requirements?.count || 0;
+            if (quest.type === 'vc_time') target = quest.requirements?.minutes || 0;
+      
+            embed.addFields({
+              name: `📅 Day ${quest.day}: ${quest.name}`,
+              value: `Progress: **${todayProgress.progress || 0}/${target}**\nStatus: **${todayProgress.completed ? "✅ Completed" : "⏳ Ongoing"}**`,
+              inline: false
+            });
           }
-      
-          let target = 0;
-          if (quest.type === 'messages') target = quest.requirements?.count || 0;
-          if (quest.type === 'vc_time') target = quest.requirements?.minutes || 0;
-      
-          embed.addFields({
-            name: `📅 Day ${quest.day}: ${quest.name}`,
-            value: `Progress: **${p.progress || 0}/${target}**\nStatus: **${p.completed ? "✅ Completed" : "⏳ Ongoing"}**`,
-            inline: false
-          });
-        });
+        }
       
         return interaction.reply({ embeds: [embed], ephemeral: false });
       }
@@ -214,6 +218,7 @@ module.exports = {
   getQuests,
   findQuest
 };
+
 
 
 
