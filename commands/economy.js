@@ -201,8 +201,7 @@ module.exports = {
       
                 await supabase.from('users')
                   .update({
-                    balance: (user.balance || 0) + (reward.credits || 0),
-                    gems: (user.gems || 0) + (reward.gems || 0)
+                    balance: (user.balance || 0) + (reward || 0)
                   })
                   .eq('id', uid);
       
@@ -212,7 +211,7 @@ module.exports = {
                   .eq('user_id', uid)
                   .eq('quest_id', today);
       
-                questText = `🎉 **Quest Completed!**\nReward claimed: **+${reward.credits || 0} credits, +${reward.gems || 0} gems**`;
+                questText = `🎉 **Quest Completed!**\nReward claimed: **+${reward || 0} credits**`;
               } else {
                 questText = `✅ Quest already completed and reward claimed.`;
               }
@@ -304,5 +303,6 @@ module.exports = {
     }
   }
 };
+
 
 
