@@ -101,7 +101,14 @@ module.exports = {
         console.log("📊 Quest progress from DB:", progress);
       
         // ✅ Only today's quest
-        const today = new Date().getDate();
+        // Force Manila timezone (UTC+8)
+        const now = new Date();
+        const manilaOffset = 8 * 60; // minutes offset
+        const local = new Date(now.getTime() + (manilaOffset - now.getTimezoneOffset()) * 60000);
+
+        const today = local.getDate(); // Manila day of the month
+
+     
         const todayProgress = progress.find(p => p.quest_id === today);
       
         const embed = new EmbedBuilder()
@@ -218,6 +225,7 @@ module.exports = {
   getQuests,
   findQuest
 };
+
 
 
 
