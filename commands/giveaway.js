@@ -9,21 +9,21 @@ module.exports = {
     .setName("giveaway")
     .setDescription("Start a giveaway")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addIntegerOption(opt => 
+    .addIntegerOption(opt =>
       opt.setName("winners").setDescription("Number of winners").setRequired(true))
-    .addStringOption(opt => 
+    .addStringOption(opt =>
       opt.setName("prize").setDescription("Prize description").setRequired(true))
-    .addChannelOption(opt => 
+    .addChannelOption(opt =>
       opt.setName("channel").setDescription("Channel to post giveaway").setRequired(true))
-    .addStringOption(opt => 
+    .addStringOption(opt =>
       opt.setName("duration").setDescription("Duration (e.g. 1h, 30m, 2d, 1w)").setRequired(true))
-    .addRoleOption(opt => 
+    .addRoleOption(opt =>
       opt.setName("role_required").setDescription("Role required to enter").setRequired(false))
-    .addIntegerOption(opt => 
+    .addIntegerOption(opt =>
       opt.setName("messages_required").setDescription("Messages required to qualify").setRequired(false))
-    .addIntegerOption(opt => 
+    .addIntegerOption(opt =>
       opt.setName("booster_entries").setDescription("Extra entries for server boosters").setRequired(false))
-    .addIntegerOption(opt => 
+    .addIntegerOption(opt =>
       opt.setName("invites_required").setDescription("Invites required to qualify").setRequired(false)),
 
   async execute(interaction, { client, supabase }) {
@@ -39,15 +39,20 @@ module.exports = {
     // Parse duration
     const durationMs = ms(durationStr);
     if (!durationMs) {
-      return interaction.reply({ content: "❌ Invalid duration format. Use like `1h`, `30m`, `2d`, `1w`.", ephemeral: true });
+      return interaction.reply({
+        content: "❌ Invalid duration format. Use like `1h`, `30m`, `2d`, `1w`.",
+        ephemeral: true
+      });
     }
 
     const endsAt = new Date(Date.now() + durationMs).toISOString();
 
-    // Create giveaway embed
+    // Giveaway embed
     const embed = new EmbedBuilder()
       .setTitle("🎉 Giveaway!")
-      .setDescription(`**Prize:** ${prize}\n**Winners:** ${winners}\n**Ends in:** ${durationStr}`)
+      .setDescription(
+        `**Prize:** ${prize}\n**Winners:** ${winners}\n**Ends in:** ${durationStr}`
+      )
       .setColor("Random")
       .setTimestamp(Date.now() + durationMs)
       .setFooter({ text: `Giveaway started by ${interaction.user.tag}` });
@@ -57,10 +62,11 @@ module.exports = {
     if (invitesRequired) embed.addFields({ name: "Invites Required", value: `${invitesRequired}`, inline: true });
     if (boosterEntries > 1) embed.addFields({ name: "Booster Bonus", value: `+${boosterEntries - 1} entries`, inline: true });
 
+    // Send message
     const msg = await channel.send({ embeds: [embed] });
     await msg.react("🎉");
 
-    // 🔹 Insert giveaway into Supabase
+    // Insert giveaway in Supabase
     const { data, error } = await supabase
       .from("giveaways")
       .insert({
@@ -72,21 +78,28 @@ module.exports = {
         messages_required: messagesRequired,
         invites_required: invitesRequired,
         booster_entries: boosterEntries,
-        ends_at: endsAt
+        ends_at: endsAt,
+        ended: false
       })
       .select()
       .single();
 
     if (error) {
       console.error("❌ Failed to insert giveaway:", error);
-      return interaction.reply({ content: "❌ Failed to create giveaway in database.", ephemeral: true });
+      return interaction.reply({
+        content: "❌ Failed to create giveaway in database.",
+        ephemeral: true
+      });
     }
 
-    interaction.reply({ content: `✅ Giveaway started in ${channel}!`, ephemeral: true });
+    await interaction.reply({
+      content: `✅ Giveaway started in ${channel}!`,
+      ephemeral: true
+    });
 
-    // Store giveaway info in memory (with DB id)
+    // Cache giveaway
     giveaways.set(msg.id, {
-      dbId: data.id, // uuid from DB
+      dbId: data.id, // UUID from DB
       messageId: msg.id,
       channelId: channel.id,
       prize,
@@ -95,16 +108,16 @@ module.exports = {
       roleRequired,
       messagesRequired,
       invitesRequired,
-      boosterEntries,
-      entries: new Map()
+      boosterEntries
     });
 
-    // Schedule giveaway end (basic, can be improved with cron + DB check)
+    // End logic
     setTimeout(async () => {
       const giveaway = giveaways.get(msg.id);
       if (!giveaway) return;
 
-      const fetchedMsg = await channel.messages.fetch(giveaway.messageId);
+      const fetchedMsg = await channel.messages.fetch(giveaway.messageId).catch(() => null);
+      if (!fetchedMsg) return;
       const reaction = fetchedMsg.reactions.cache.get("🎉");
       if (!reaction) return;
 
@@ -113,22 +126,48 @@ module.exports = {
 
       for (const [uid, user] of users) {
         if (user.bot) continue;
+
         const member = await channel.guild.members.fetch(uid).catch(() => null);
         if (!member) continue;
 
         // Role check
         if (giveaway.roleRequired && !member.roles.cache.has(giveaway.roleRequired.id)) continue;
 
-        // TODO: cross-check messages & invites from Supabase here
+        // Progress check
+        const { data: progress, error: progressError } = await supabase
+          .from("giveaway_progress")
+          .select("messages_count, invites_count")
+          .eq("giveaway_id", giveaway.dbId)
+          .eq("user_id", uid)
+          .maybeSingle();
+
+        if (progressError) {
+          console.error("❌ Error fetching progress:", progressError);
+          continue;
+        }
+
+        if (giveaway.messagesRequired && (!progress || progress.messages_count < giveaway.messagesRequired)) {
+          continue; // not enough messages
+        }
+
+        if (giveaway.invitesRequired && (!progress || progress.invites_count < giveaway.invitesRequired)) {
+          continue; // not enough invites
+        }
+
+        // Booster entries
         let entries = 1;
         if (member.premiumSince && giveaway.boosterEntries > 1) {
           entries += (giveaway.boosterEntries - 1);
         }
+
         entrants.push(...Array(entries).fill(uid));
       }
 
       if (entrants.length === 0) {
-        return channel.send(`❌ No valid entrants for giveaway **${giveaway.prize}**`);
+        await channel.send(`❌ No valid entrants for giveaway **${giveaway.prize}**`);
+        giveaways.delete(msg.id);
+        await supabase.from("giveaways").update({ ended: true }).eq("id", giveaway.dbId);
+        return;
       }
 
       // Pick winners
@@ -138,9 +177,12 @@ module.exports = {
         if (!winnersPicked.includes(winnerId)) winnersPicked.push(winnerId);
       }
 
-      channel.send(`🎉 Congratulations ${winnersPicked.map(id => `<@${id}>`).join(", ")}! You won **${giveaway.prize}**!`);
+      await channel.send(
+        `🎉 Congratulations ${winnersPicked.map(id => `<@${id}>`).join(", ")}! You won **${giveaway.prize}**!`
+      );
 
       giveaways.delete(msg.id);
+      await supabase.from("giveaways").update({ ended: true }).eq("id", giveaway.dbId);
     }, durationMs);
   }
 };
