@@ -366,9 +366,13 @@ client.on("messageReactionAdd", async (reaction, user) => {
   }
 
   // ❌ Not eligible → remove reaction + DM user
-  if (!eligible) {
-    await reaction.users.remove(user.id).catch(() => null);
-    await user.send(`❌ You cannot join the giveaway **${giveaway.prize}**.\n${reason}`).catch(() => null);
+   if (!eligible) {
+      try {
+        await reaction.users.remove(user.id);
+        console.log(`❌ Removed ineligible reaction from ${user.tag} (${user.id})`);
+      } catch (err) {
+        console.error(`⚠️ Failed to remove reaction for ${user.tag}:`, err);
+      }
   }
 });
 
@@ -394,6 +398,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
