@@ -177,34 +177,6 @@ client.on('messageCreate', async (message) => {
 
   if (upsertError) console.error('❌ Quest insert/update failed:', upsertError);
   else console.log(`✅ Quest progress updated: user=${userId}, quest=Day ${today}, progress=${progress}`);
-  
-  
-   // fetch active giveaways
-  const { data: active } = await supabase
-    .from('giveaways')
-    .select('id, ends_at, messages_required')
-    .gt('ends_at', new Date().toISOString());
-
-  if (!active || active.length === 0) return;
-
-  for (const ga of active) {
-    if (!ga.messages_required) continue; // skip if not required
-
-    // get existing progress
-    const { data: row } = await supabase
-      .from('giveaway_progress')
-      .select('*')
-      .eq('giveaway_id', ga.id)
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    const newCount = (row?.messages_count || 0) + 1;
-
-    await supabase.from('giveaway_progress')
-      .upsert({ giveaway_id: ga.id, user_id: userId, messages_count: newCount, invites_count: row?.invites_count || 0 });
-
-    console.log(`📩 GA ${ga.id}: ${userId} → messages=${newCount}`);
-  }
 });
 
 // 🎙️ Track VC time for today’s quest
@@ -254,52 +226,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
   }
 });
 
-
-const invitesCache = new Map();
-client.on('inviteCreate', invite => {
-  invitesCache.set(invite.code, { uses: invite.uses, inviter: invite.inviter?.id });
-});
-client.on('inviteDelete', invite => {
-  invitesCache.delete(invite.code);
-});
-
-client.on('guildMemberAdd', async member => {
-  const invites = await member.guild.invites.fetch();
-  const usedInvite = invites.find(inv => {
-    const cached = invitesCache.get(inv.code);
-    return cached && inv.uses > (cached.uses || 0);
-  });
-
-  if (!usedInvite) return;
-  const inviterId = usedInvite.inviter?.id;
-  if (!inviterId) return;
-
-  // fetch active giveaways
-  const { data: active } = await supabase
-    .from('giveaways')
-    .select('id, ends_at, invites_required')
-    .gt('ends_at', new Date().toISOString());
-
-  if (!active || active.length === 0) return;
-
-  for (const ga of active) {
-    if (!ga.invites_required) continue;
-
-    const { data: row } = await supabase
-      .from('giveaway_progress')
-      .select('*')
-      .eq('giveaway_id', ga.id)
-      .eq('user_id', inviterId)
-      .maybeSingle();
-
-    const newCount = (row?.invites_count || 0) + 1;
-
-    await supabase.from('giveaway_progress')
-      .upsert({ giveaway_id: ga.id, user_id: inviterId, messages_count: row?.messages_count || 0, invites_count: newCount });
-
-    console.log(`🎟️ GA ${ga.id}: ${inviterId} → invites=${newCount}`);
-  }
-});
 
 
 // =============================================================
