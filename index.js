@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
-const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits,Partials , Collection, REST, Routes } = require('discord.js');
 const { createClient } = require('@supabase/supabase-js');
 const cron = require('node-cron');
 
@@ -394,6 +394,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
