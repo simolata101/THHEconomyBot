@@ -302,6 +302,77 @@ client.on('guildMemberAdd', async member => {
 });
 
 
+client.on("messageReactionAdd", async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.emoji.name !== "🎉") return;
+
+  // Fetch partials
+  if (reaction.partial) await reaction.fetch();
+  if (reaction.message.partial) await reaction.message.fetch();
+
+  const giveawayId = reaction.message.id;
+
+  // Check if this message is a giveaway (in memory OR DB)
+  const { data: giveaway } = await supabase
+    .from("giveaways")
+    .select("*")
+    .eq("message_id", giveawayId)
+    .single();
+
+  if (!giveaway) return; // Not a giveaway
+
+  const guild = reaction.message.guild;
+  const member = await guild.members.fetch(user.id).catch(() => null);
+  if (!member) return;
+
+  let eligible = true;
+  let reason = "";
+
+  // 🔹 Role requirement
+  if (giveaway.role_required && !member.roles.cache.has(giveaway.role_required)) {
+    eligible = false;
+    reason = `You must have <@&${giveaway.role_required}> to join this giveaway.`;
+  }
+
+  // 🔹 Messages requirement
+  if (eligible && giveaway.messages_required > 0) {
+    const { data: progress } = await supabase
+      .from("giveaway_progress")
+      .select("messages_count")
+      .eq("giveaway_id", giveaway.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!progress || progress.messages_count < giveaway.messages_required) {
+      eligible = false;
+      reason = `You need at least **${giveaway.messages_required} messages** to join this giveaway.`;
+    }
+  }
+
+  // 🔹 Invites requirement
+  if (eligible && giveaway.invites_required > 0) {
+    const { data: progress } = await supabase
+      .from("giveaway_progress")
+      .select("invites_count")
+      .eq("giveaway_id", giveaway.id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (!progress || progress.invites_count < giveaway.invites_required) {
+      eligible = false;
+      reason = `You need at least **${giveaway.invites_required} invites** to join this giveaway.`;
+    }
+  }
+
+  // ❌ Not eligible → remove reaction + DM user
+  if (!eligible) {
+    await reaction.users.remove(user.id).catch(() => null);
+    await user.send(`❌ You cannot join the giveaway **${giveaway.prize}**.\n${reason}`).catch(() => null);
+  }
+});
+
+
+
 // =============================================================
 
 client.on('interactionCreate', async (interaction) => {
@@ -322,6 +393,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
