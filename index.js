@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
-const { Client, GatewayIntentBits,Partials , Collection, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, Collection, REST, Routes } = require('discord.js');
 const { createClient } = require('@supabase/supabase-js');
 const cron = require('node-cron');
 
@@ -83,6 +83,37 @@ client.once('ready', async () => {
 
   // 🔹 Load quests on startup
   await loadQuests();
+
+  // 🔹 Resync active giveaways on startup
+  try {
+    const { data: active, error } = await supabase
+      .from("giveaways")
+      .select("*")
+      .gt("ends_at", new Date().toISOString());
+
+    if (error) console.error("❌ Failed to fetch active giveaways:", error);
+    else if (active) {
+      console.log(`🔄 Resynced ${active.length} active giveaways from DB`);
+      client.activeGiveaways = active;
+    }
+  } catch (err) {
+    console.error("⚠️ Error during giveaways resync:", err);
+  }
+
+  // 🔹 Refresh invite cache
+  try {
+    for (const guild of client.guilds.cache.values()) {
+      const invites = await guild.invites.fetch().catch(() => null);
+      if (invites) {
+        invites.forEach(inv => {
+          invitesCache.set(inv.code, { uses: inv.uses, inviter: inv.inviter?.id });
+        });
+      }
+    }
+    console.log("✅ Invite cache resynced");
+  } catch (err) {
+    console.error("⚠️ Error refreshing invite cache:", err);
+  }
 
   // 🕒 Cron: every hour (passive income)
   cron.schedule('0 * * * *', async () => {
@@ -179,8 +210,7 @@ client.on('messageCreate', async (message) => {
   if (upsertError) console.error('❌ Quest insert/update failed:', upsertError);
   else console.log(`✅ Quest progress updated: user=${userId}, quest=Day ${today}, progress=${progress}`);
   
-  
-   // fetch active giveaways
+  // fetch active giveaways
   const { data: active } = await supabase
     .from('giveaways')
     .select('id, ends_at, messages_required')
@@ -189,9 +219,8 @@ client.on('messageCreate', async (message) => {
   if (!active || active.length === 0) return;
 
   for (const ga of active) {
-    if (!ga.messages_required) continue; // skip if not required
+    if (!ga.messages_required) continue;
 
-    // get existing progress
     const { data: row } = await supabase
       .from('giveaway_progress')
       .select('*')
@@ -201,10 +230,11 @@ client.on('messageCreate', async (message) => {
 
     const newCount = (row?.messages_count || 0) + 1;
 
-    await supabase.from('giveaway_progress')
+    const { error: gpError } = await supabase.from('giveaway_progress')
       .upsert({ giveaway_id: ga.id, user_id: userId, messages_count: newCount, invites_count: row?.invites_count || 0 });
 
-    console.log(`📩 GA ${ga.id}: ${userId} → messages=${newCount}`);
+    if (gpError) console.error(`❌ Failed to update GA progress: user=${userId}, ga=${ga.id}`, gpError);
+    else console.log(`📩 GA ${ga.id}: ${userId} → messages=${newCount}`);
   }
 });
 
@@ -212,12 +242,10 @@ client.on('messageCreate', async (message) => {
 client.on('voiceStateUpdate', async (oldState, newState) => {
   const userId = newState.id;
 
-  // User joins VC
   if (!oldState.channelId && newState.channelId) {
     vcJoinTimes.set(userId, Date.now());
   }
 
-  // User leaves VC
   if (oldState.channelId && !newState.channelId) {
     const joinTime = vcJoinTimes.get(userId);
     if (!joinTime) return;
@@ -230,7 +258,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     const quest = quests.find(q => q.day === today && q.type === "vc_time");
     if (!quest) return;
 
-    // Fetch current progress
     const { data: status, error } = await supabase
       .from('quests_status')
       .select('*')
@@ -255,7 +282,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
   }
 });
 
-
+// ====================== GIVEAWAY TRACKING ======================
 const invitesCache = new Map();
 client.on('inviteCreate', invite => {
   invitesCache.set(invite.code, { uses: invite.uses, inviter: invite.inviter?.id });
@@ -275,7 +302,6 @@ client.on('guildMemberAdd', async member => {
   const inviterId = usedInvite.inviter?.id;
   if (!inviterId) return;
 
-  // fetch active giveaways
   const { data: active } = await supabase
     .from('giveaways')
     .select('id, ends_at, invites_required')
@@ -295,32 +321,50 @@ client.on('guildMemberAdd', async member => {
 
     const newCount = (row?.invites_count || 0) + 1;
 
-    await supabase.from('giveaway_progress')
+    const { error: gpError } = await supabase.from('giveaway_progress')
       .upsert({ giveaway_id: ga.id, user_id: inviterId, messages_count: row?.messages_count || 0, invites_count: newCount });
 
-    console.log(`🎟️ GA ${ga.id}: ${inviterId} → invites=${newCount}`);
+    if (gpError) console.error(`❌ Failed to update GA invites: user=${inviterId}, ga=${ga.id}`, gpError);
+    else console.log(`🎟️ GA ${ga.id}: ${inviterId} → invites=${newCount}`);
   }
 });
-
 
 client.on("messageReactionAdd", async (reaction, user) => {
   if (user.bot) return;
   if (reaction.emoji.name !== "🎉") return;
 
-  // Fetch partials
   if (reaction.partial) await reaction.fetch();
   if (reaction.message.partial) await reaction.message.fetch();
 
   const giveawayId = reaction.message.id;
 
-  // Check if this message is a giveaway (in memory OR DB)
   const { data: giveaway } = await supabase
     .from("giveaways")
     .select("*")
     .eq("message_id", giveawayId)
     .single();
 
-  if (!giveaway) return; // Not a giveaway
+  if (!giveaway) return;
+
+  const { data: row, error: rowError } = await supabase
+    .from("giveaway_progress")
+    .select("*")
+    .eq("giveaway_id", giveaway.id)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (rowError) console.error("⚠️ Error fetching giveaway_progress row:", rowError);
+
+  if (!row) {
+    const { error: insertError } = await supabase.from("giveaway_progress").insert({
+      giveaway_id: giveaway.id,
+      user_id: user.id,
+      messages_count: 0,
+      invites_count: 0
+    });
+    if (insertError) console.error(`❌ Failed to insert giveaway_progress for ${user.id}:`, insertError);
+    else console.log(`✅ Created giveaway_progress row for ${user.id} in GA ${giveaway.id}`);
+  }
 
   const guild = reaction.message.guild;
   const member = await guild.members.fetch(user.id).catch(() => null);
@@ -329,13 +373,11 @@ client.on("messageReactionAdd", async (reaction, user) => {
   let eligible = true;
   let reason = "";
 
-  // 🔹 Role requirement
   if (giveaway.role_required && !member.roles.cache.has(giveaway.role_required)) {
     eligible = false;
     reason = `You must have <@&${giveaway.role_required}> to join this giveaway.`;
   }
 
-  // 🔹 Messages requirement
   if (eligible && giveaway.messages_required > 0) {
     const { data: progress } = await supabase
       .from("giveaway_progress")
@@ -350,7 +392,6 @@ client.on("messageReactionAdd", async (reaction, user) => {
     }
   }
 
-  // 🔹 Invites requirement
   if (eligible && giveaway.invites_required > 0) {
     const { data: progress } = await supabase
       .from("giveaway_progress")
@@ -365,20 +406,17 @@ client.on("messageReactionAdd", async (reaction, user) => {
     }
   }
 
-  // ❌ Not eligible → remove reaction + DM user
-   if (!eligible) {
-      try {
-        await reaction.users.remove(user.id);
-        console.log(`❌ Removed ineligible reaction from ${user.tag} (${user.id})`);
-      } catch (err) {
-        console.error(`⚠️ Failed to remove reaction for ${user.tag}:`, err);
-      }
+  if (!eligible) {
+    try {
+      await reaction.users.remove(user.id);
+      console.log(`❌ Removed ineligible reaction from ${user.tag} (${user.id}): ${reason}`);
+    } catch (err) {
+      console.error(`⚠️ Failed to remove reaction for ${user.tag}:`, err);
+    }
+  } else {
+    console.log(`✅ ${user.tag} (${user.id}) successfully entered GA ${giveaway.id}`);
   }
 });
-
-
-
-// =============================================================
 
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -398,9 +436,3 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
-
-
-
-
-
