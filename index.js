@@ -117,6 +117,7 @@ async function ensureGiveawayProgressRow(gaId, userId) {
 }
 
 async function incrementGiveawayProgress(gaId, userId, field) {
+  console.log('incrementGiveawayProgress');
   try {
     const { data: row, error } = await supabase
       .from('giveaway_progress')
@@ -349,8 +350,31 @@ client.on('messageCreate', async (message) => {
   for (const ga of active) {
     if (!ga.messages_required) continue;
 
-    await incrementGiveawayProgress(ga.id, userId, 'messages_count');
-    console.log(`📩 GA ${ga.id}: ${userId} → message recorded`);
+    // fetch or create row
+    const { data: row } = await supabase
+      .from('giveaway_progress')
+      .select('*')
+      .eq('giveaway_id', ga.id)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (row) {
+      const { error: updateError } = await supabase
+        .from('giveaway_progress')
+        .update({ messages_count: row.messages_count + 1 })
+        .eq('giveaway_id', ga.id)
+        .eq('user_id', userId);
+
+      if (updateError) console.error("❌ GA update error:", updateError);
+      else console.log(`📩 GA ${ga.id}: ${userId} → messages=${row.messages_count + 1}`);
+    } else {
+      const { error: insertError } = await supabase
+        .from('giveaway_progress')
+        .insert({ giveaway_id: ga.id, user_id: userId, messages_count: 1, invites_count: 0 });
+
+      if (insertError) console.error("❌ GA insert error:", insertError);
+      else console.log(`📩 GA ${ga.id}: ${userId} → messages=1 (new row)`);
+    }
   }
 });
 
@@ -523,3 +547,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
