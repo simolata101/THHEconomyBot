@@ -23,6 +23,10 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildInvites,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.MessageContent
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
@@ -485,6 +489,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
