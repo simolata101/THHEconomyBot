@@ -26,7 +26,8 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.GuildInvites,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.MessageContent
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
@@ -307,6 +308,7 @@ const vcJoinTimes = new Map();
 // 📝 Track messages for today’s quest
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
+   console.log("💬 message received:", message.content); // test log
 
   const userId = message.author.id;
   const quests = client.getQuests();
@@ -547,4 +549,5 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
