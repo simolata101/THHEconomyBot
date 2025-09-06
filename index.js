@@ -486,6 +486,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
   const giveawayId = reaction.message.id;
 
+  // Fetch giveaway
   const { data: giveaway } = await supabase
     .from('giveaways')
     .select('*')
@@ -494,7 +495,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
   if (!giveaway) return;
 
-  // Ensure progress row exists (but do not increment counts just for reacting)
+  // 🔹 Ensure progress row exists
   const row = await ensureGiveawayProgressRow(giveaway.id, user.id);
   if (row) console.log(`✅ Created/confirmed giveaway_progress for ${user.tag} in GA ${giveaway.id}`);
 
@@ -505,11 +506,13 @@ client.on('messageReactionAdd', async (reaction, user) => {
   let eligible = true;
   let reason = '';
 
+  // Check role requirement
   if (giveaway.role_required && !member.roles.cache.has(giveaway.role_required)) {
     eligible = false;
     reason = `You must have <@&${giveaway.role_required}> to join this giveaway.`;
   }
 
+  // Check message requirement
   if (eligible && giveaway.messages_required > 0) {
     const { data: progress } = await supabase
       .from('giveaway_progress')
@@ -524,6 +527,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     }
   }
 
+  // Check invite requirement
   if (eligible && giveaway.invites_required > 0) {
     const { data: progress } = await supabase
       .from('giveaway_progress')
@@ -539,6 +543,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
   }
 
   if (!eligible) {
+    // Remove reaction if ineligible
     try {
       await reaction.users.remove(user.id);
       console.log(`❌ Removed ineligible reaction from ${user.tag} (${user.id}): ${reason}`);
@@ -549,6 +554,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     console.log(`✅ ${user.tag} (${user.id}) successfully entered GA ${giveaway.id}`);
   }
 });
+
 
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -568,6 +574,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
