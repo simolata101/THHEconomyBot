@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
-const { Client, GatewayIntentBits,Partials , Collection, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits,Partials , Collection, REST, Routes, ChannelType  } = require('discord.js');
 const { createClient } = require('@supabase/supabase-js');
 const cron = require('node-cron');
 
@@ -27,9 +27,10 @@ const client = new Client({
     GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.GuildInvites,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent
   ],
-  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction,Partials.User],
 });
 client.commands = new Collection();
 
@@ -455,16 +456,28 @@ client.on('messageReactionAdd', async (reaction, user) => {
     }
   }
 
-  if (!eligible) {
-    try {
-      await reaction.users.remove(user.id);
-      console.log(`❌ Removed ineligible reaction from ${user.tag}: ${reason}`);
-    } catch (err) {
-      console.error(`⚠️ Failed to remove reaction for ${user.tag}:`, err);
-    }
-  } else {
-    console.log(`✅ ${user.tag} successfully entered GA ${giveaway.id}`);
+if (!eligible) {
+  try {
+    await reaction.users.remove(user.id);
+    console.log(`❌ Removed ineligible reaction from ${user.tag}: ${reason}`);
+
+    // DM the user about removal
+    if (user.dmChannel === null) await user.createDM(); // Ensure DM channel exists
+    await user.send(`You were removed from the giveaway (${giveaway.id}) because: ${reason}`);
+  } catch (err) {
+    console.error(`⚠️ Failed to remove reaction or send DM for ${user.tag}:`, err);
   }
+} else {
+  console.log(`✅ ${user.tag} successfully entered GA ${giveaway.id}`);
+
+  // Optionally DM the user to confirm entry
+  try {
+    if (user.dmChannel === null) await user.createDM();
+    await user.send(`You have successfully entered the giveaway (${giveaway.id})! Good luck!`);
+  } catch (err) {
+    console.error(`⚠️ Failed to send entry DM to ${user.tag}:`, err);
+  }
+}
 });
 
 
@@ -489,6 +502,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
