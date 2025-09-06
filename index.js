@@ -308,23 +308,25 @@ const vcJoinTimes = new Map();
 // 📝 Track messages for today’s quest
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
-   console.log("💬 message received:", message.content); // test log
+  console.log("💬 Message received:", message.content); // Test log
 
   const userId = message.author.id;
   const quests = client.getQuests();
 
-  // ✅ Only today’s quest
+  // ✅ Only today's quest
   const today = new Date().getDate();
   const quest = quests.find(q => q.day === today && q.type === 'messages');
   if (!quest) return;
 
-  // Fetch current progress
-  const { data: status, error } = await supabase
+  // Fetch current quest progress
+  const { data: status, error: fetchQuestError } = await supabase
     .from('quests_status')
     .select('*')
     .eq('user_id', userId)
     .eq('quest_id', today)
     .maybeSingle();
+
+  if (fetchQuestError) console.error("❌ Failed to fetch quest status:", fetchQuestError);
 
   const target = quest.requirements?.count || 0;
   const progress = (status?.progress || 0) + 1;
@@ -340,42 +342,59 @@ client.on('messageCreate', async (message) => {
 
   if (upsertError) console.error('❌ Quest insert/update failed:', upsertError);
   else console.log(`✅ Quest progress updated: user=${userId}, quest=Day ${today}, progress=${progress}`);
-  
-  // fetch active giveaways
-  const { data: active } = await supabase
+
+  // === Giveaway progress tracking ===
+  const { data: activeGiveaways, error: activeError } = await supabase
     .from('giveaways')
     .select('id, ends_at, messages_required')
     .gt('ends_at', new Date().toISOString());
 
-  if (!active || active.length === 0) return;
+  if (activeError) {
+    console.error("❌ Failed to fetch active giveaways:", activeError);
+    return;
+  }
 
-  for (const ga of active) {
-    if (!ga.messages_required) continue;
+  if (!activeGiveaways || activeGiveaways.length === 0) {
+    console.log("ℹ️ No active giveaways right now.");
+    return;
+  }
 
-    // fetch or create row
-    const { data: row } = await supabase
+  for (const ga of activeGiveaways) {
+    if (!ga.messages_required || ga.messages_required <= 0) {
+      console.log(`ℹ️ Skipping GA ${ga.id}, messages_required=${ga.messages_required}`);
+      continue;
+    }
+
+    // Fetch or create user's giveaway progress
+    const { data: row, error: rowError } = await supabase
       .from('giveaway_progress')
       .select('*')
       .eq('giveaway_id', ga.id)
       .eq('user_id', userId)
       .maybeSingle();
 
+    if (rowError) {
+      console.error(`⚠️ Failed to fetch GA ${ga.id} row for user ${userId}:`, rowError);
+      continue;
+    }
+
     if (row) {
-      const { error: updateError } = await supabase
+      const newCount = (row.messages_count || 0) + 1;
+      const { data: updatedRow, error: updateError } = await supabase
         .from('giveaway_progress')
-        .update({ messages_count: row.messages_count + 1 })
+        .update({ messages_count: newCount })
         .eq('giveaway_id', ga.id)
         .eq('user_id', userId);
 
-      if (updateError) console.error("❌ GA update error:", updateError);
-      else console.log(`📩 GA ${ga.id}: ${userId} → messages=${row.messages_count + 1}`);
+      if (updateError) console.error(`❌ [UPDATE FAILED] GA ${ga.id}, user=${userId}, messages=${newCount}:`, updateError);
+      else console.log(`✅ [UPDATED] GA ${ga.id}: user=${userId}, messages=${newCount}`, updatedRow);
     } else {
-      const { error: insertError } = await supabase
+      const { data: insertedRow, error: insertError } = await supabase
         .from('giveaway_progress')
         .insert({ giveaway_id: ga.id, user_id: userId, messages_count: 1, invites_count: 0 });
 
-      if (insertError) console.error("❌ GA insert error:", insertError);
-      else console.log(`📩 GA ${ga.id}: ${userId} → messages=1 (new row)`);
+      if (insertError) console.error(`❌ [INSERT FAILED] GA ${ga.id}, user=${userId}, messages=1:`, insertError);
+      else console.log(`✅ [INSERTED] GA ${ga.id}: user=${userId}, messages=1 (new row)`, insertedRow);
     }
   }
 });
@@ -549,5 +568,6 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
