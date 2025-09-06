@@ -351,6 +351,14 @@ client.on('messageCreate', async (message) => {
     .gt('ends_at', new Date().toISOString())
     .not('messages_required', 'is', null);
 
+  if (error) {
+    console.error('Error fetching giveaways:', error);
+  } else if (!activeGiveaways || activeGiveaways.length === 0) {
+    console.log('No active giveaways found.');
+  } else {
+    console.log('Fetched active giveaways:', activeGiveaways);
+  }
+
   if (error || !activeGiveaways?.length) return;
 
   for (const ga of activeGiveaways) {
@@ -562,6 +570,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
