@@ -308,25 +308,22 @@ const vcJoinTimes = new Map();
 // 📝 Track messages for today’s quest
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
-  console.log("💬 Message received:", message.content); // Test log
 
   const userId = message.author.id;
   const quests = client.getQuests();
 
-  // ✅ Only today's quest
+  // ✅ Only today’s quest
   const today = new Date().getDate();
-  const quest = quests.find(q => q.day === today && q.type === 'messages');
+  const quest = quests.find(q => q.day === today && q.type === "messages");
   if (!quest) return;
 
-  // Fetch current quest progress
-  const { data: status, error: fetchQuestError } = await supabase
+  // Fetch current progress
+  const { data: status, error } = await supabase
     .from('quests_status')
     .select('*')
     .eq('user_id', userId)
     .eq('quest_id', today)
     .maybeSingle();
-
-  if (fetchQuestError) console.error("❌ Failed to fetch quest status:", fetchQuestError);
 
   const target = quest.requirements?.count || 0;
   const progress = (status?.progress || 0) + 1;
@@ -342,60 +339,35 @@ client.on('messageCreate', async (message) => {
 
   if (upsertError) console.error('❌ Quest insert/update failed:', upsertError);
   else console.log(`✅ Quest progress updated: user=${userId}, quest=Day ${today}, progress=${progress}`);
-
-  // === Giveaway progress tracking ===
-    // Fetch active giveaways requiring messages
-  const { data: activeGiveaways, error } = await supabase
+  
+  
+   // fetch active giveaways
+  const { data: active } = await supabase
     .from('giveaways')
-    .select('*')
-    .gt('ends_at', new Date().toISOString())
-    .not('messages_required', 'is', null);
+    .select('id, ends_at, messages_required')
+    .gt('ends_at', new Date().toISOString());
 
-  if (error) {
-    console.error('Error fetching giveaways:', error);
-  } else if (!activeGiveaways || activeGiveaways.length === 0) {
-    console.log('No active giveaways found.');
-  } else {
-    console.log('Fetched active giveaways:', activeGiveaways);
-  }
+  if (!active || active.length === 0) return;
 
-  if (error || !activeGiveaways?.length) return;
+  for (const ga of active) {
+    if (!ga.messages_required) continue; // skip if not required
 
-  for (const ga of activeGiveaways) {
-    try {
-      const { data: row, error: rowError } = await supabase
-        .from('giveaway_progress')
-        .select('*')
-        .eq('giveaway_id', ga.id)
-        .eq('user_id', userId)
-        .maybeSingle();
+    // get existing progress
+    const { data: row } = await supabase
+      .from('giveaway_progress')
+      .select('*')
+      .eq('giveaway_id', ga.id)
+      .eq('user_id', userId)
+      .maybeSingle();
 
-      if (rowError) {
-        console.error('❌ Failed to fetch progress:', rowError);
-        continue;
-      }
+    const newCount = (row?.messages_count || 0) + 1;
 
-      if (row) {
-        // Update existing row
-        await supabase
-          .from('giveaway_progress')
-          .update({ messages_count: (row.messages_count || 0) + 1 })
-          .eq('giveaway_id', ga.id)
-          .eq('user_id', userId);
-      } else {
-        // Insert new row
-        await supabase
-          .from('giveaway_progress')
-          .insert({ giveaway_id: ga.id, user_id: userId, messages_count: 1, invites_count: 0 });
-      }
+    await supabase.from('giveaway_progress')
+      .upsert({ giveaway_id: ga.id, user_id: userId, messages_count: newCount, invites_count: row?.invites_count || 0 });
 
-      console.log(`✅ GA ${ga.id}: message progress updated for user ${userId}`);
-    } catch (err) {
-      console.error('❌ Error updating giveaway_progress:', err);
-    }
+    console.log(`📩 GA ${ga.id}: ${userId} → messages=${newCount}`);
   }
 });
-
 // 🎙️ Track VC time for today’s quest
 client.on('voiceStateUpdate', async (oldState, newState) => {
   const userId = newState.id;
@@ -570,6 +542,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
