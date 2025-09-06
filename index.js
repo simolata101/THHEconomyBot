@@ -173,6 +173,76 @@ client.once('ready', async () => {
   // 🔹 Load quests on startup
   await loadQuests();
 
+  try {
+    const { data: active, error } = await supabase
+      .from('giveaways')
+      .select('*')
+      .gt('ends_at', new Date().toISOString());
+
+    if (error) console.error('❌ Failed to fetch active giveaways:', error);
+    else if (active) {
+      console.log(`🔄 Resynced ${active.length} active giveaways from DB`);
+      client.activeGiveaways = active;
+
+      // Resync giveaway_progress based on existing reactions and log who reacted
+      for (const ga of active) {
+        try {
+          if (!ga.channel_id || !ga.message_id) continue;
+          const channel = await client.channels.fetch(ga.channel_id).catch(() => null);
+          if (!channel) {
+            console.warn(`⚠️ Unable to fetch channel ${ga.channel_id} for GA ${ga.id}`);
+            continue;
+          }
+
+          const message = await channel.messages.fetch(ga.message_id).catch(() => null);
+          if (!message) {
+            console.warn(`⚠️ Unable to fetch message ${ga.message_id} in channel ${ga.channel_id} for GA ${ga.id}`);
+            continue;
+          }
+
+          const reaction = message.reactions.cache.find(r => r.emoji.name === '🎉');
+          if (!reaction) continue;
+
+          // Fetch users who reacted (may be limited to 100 at a time)
+          const users = await reaction.users.fetch().catch(err => {
+            console.error(`⚠️ Failed to fetch users for reaction on message ${ga.message_id}:`, err);
+            return null;
+          });
+
+          if (!users) continue;
+
+          for (const [uid, user] of users) {
+            if (user.bot) continue;
+            console.log(`♻️ Resync GA ${ga.id}: ${user.tag} (${uid}) reacted 🎉`);
+
+            // Ensure giveaway_progress record exists for this user
+            const row = await ensureGiveawayProgressRow(ga.id, uid);
+            if (row) console.log(`✅ giveaway_progress exists for ${user.tag} in GA ${ga.id}`);
+          }
+        } catch (err) {
+          console.error(`⚠️ Error resyncing GA ${ga.id}:`, err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('⚠️ Error during giveaways resync:', err);
+  }
+
+  // 🔹 Refresh invite cache
+  try {
+    for (const guild of client.guilds.cache.values()) {
+      const invites = await guild.invites.fetch().catch(() => null);
+      if (invites) {
+        invites.forEach(inv => {
+          invitesCache.set(inv.code, { uses: inv.uses, inviter: inv.inviter?.id });
+        });
+      }
+    }
+    console.log('✅ Invite cache resynced');
+  } catch (err) {
+    console.error('⚠️ Error refreshing invite cache:', err);
+  }
+
   // 🕒 Cron: every hour (passive income)
   cron.schedule('0 * * * *', async () => {
     console.log('🏛️ Running passive income cron...');
@@ -502,6 +572,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
