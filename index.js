@@ -23,7 +23,10 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.GuildInvites,
+    GatewayIntentBits.GuildMembers
   ],
   partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
@@ -78,6 +81,91 @@ for (const file of fs.readdirSync(commandsPath)) {
   }
 })();
 
+// ====================== HELPERS FOR GIVEAWAY_PROGRESS ======================
+async function ensureGiveawayProgressRow(gaId, userId) {
+  try {
+    const { data: row, error } = await supabase
+      .from('giveaway_progress')
+      .select('*')
+      .eq('giveaway_id', gaId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('⚠️ Error checking giveaway_progress row:', error);
+      return null;
+    }
+
+    if (row) return row;
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('giveaway_progress')
+      .insert({ giveaway_id: gaId, user_id: userId, messages_count: 0, invites_count: 0 })
+      .select()
+      .maybeSingle();
+
+    if (insertError) {
+      console.error('❌ Failed to insert giveaway_progress row:', insertError);
+      return null;
+    }
+
+    return inserted;
+  } catch (err) {
+    console.error('❌ ensureGiveawayProgressRow unexpected error:', err);
+    return null;
+  }
+}
+
+async function incrementGiveawayProgress(gaId, userId, field) {
+  try {
+    const { data: row, error } = await supabase
+      .from('giveaway_progress')
+      .select('*')
+      .eq('giveaway_id', gaId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('⚠️ Fetch error in giveaway_progress:', error);
+      return;
+    }
+
+    if (row) {
+      const updateData = {
+        messages_count: row.messages_count || 0,
+        invites_count: row.invites_count || 0
+      };
+      if (field === 'messages_count') updateData.messages_count += 1;
+      if (field === 'invites_count') updateData.invites_count += 1;
+
+      const { error: updateError } = await supabase
+        .from('giveaway_progress')
+        .update(updateData)
+        .eq('giveaway_id', gaId)
+        .eq('user_id', userId);
+
+      if (updateError) console.error('❌ Update failed in giveaway_progress:', updateError);
+    } else {
+      const insertData = {
+        giveaway_id: gaId,
+        user_id: userId,
+        messages_count: field === 'messages_count' ? 1 : 0,
+        invites_count: field === 'invites_count' ? 1 : 0
+      };
+      const { error: insertError } = await supabase
+        .from('giveaway_progress')
+        .insert(insertData);
+
+      if (insertError) console.error('❌ Insert failed in giveaway_progress:', insertError);
+    }
+  } catch (err) {
+    console.error('❌ incrementGiveawayProgress unexpected error:', err);
+  }
+}
+
+// ====================== DISCORD CLIENT READY ======================
+const invitesCache = new Map();
+
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
@@ -87,17 +175,57 @@ client.once('ready', async () => {
   // 🔹 Resync active giveaways on startup
   try {
     const { data: active, error } = await supabase
-      .from("giveaways")
-      .select("*")
-      .gt("ends_at", new Date().toISOString());
+      .from('giveaways')
+      .select('*')
+      .gt('ends_at', new Date().toISOString());
 
-    if (error) console.error("❌ Failed to fetch active giveaways:", error);
+    if (error) console.error('❌ Failed to fetch active giveaways:', error);
     else if (active) {
       console.log(`🔄 Resynced ${active.length} active giveaways from DB`);
       client.activeGiveaways = active;
+
+      // Resync giveaway_progress based on existing reactions and log who reacted
+      for (const ga of active) {
+        try {
+          if (!ga.channel_id || !ga.message_id) continue;
+          const channel = await client.channels.fetch(ga.channel_id).catch(() => null);
+          if (!channel) {
+            console.warn(`⚠️ Unable to fetch channel ${ga.channel_id} for GA ${ga.id}`);
+            continue;
+          }
+
+          const message = await channel.messages.fetch(ga.message_id).catch(() => null);
+          if (!message) {
+            console.warn(`⚠️ Unable to fetch message ${ga.message_id} in channel ${ga.channel_id} for GA ${ga.id}`);
+            continue;
+          }
+
+          const reaction = message.reactions.cache.find(r => r.emoji.name === '🎉');
+          if (!reaction) continue;
+
+          // Fetch users who reacted (may be limited to 100 at a time)
+          const users = await reaction.users.fetch().catch(err => {
+            console.error(`⚠️ Failed to fetch users for reaction on message ${ga.message_id}:`, err);
+            return null;
+          });
+
+          if (!users) continue;
+
+          for (const [uid, user] of users) {
+            if (user.bot) continue;
+            console.log(`♻️ Resync GA ${ga.id}: ${user.tag} (${uid}) reacted 🎉`);
+
+            // Ensure giveaway_progress record exists for this user
+            const row = await ensureGiveawayProgressRow(ga.id, uid);
+            if (row) console.log(`✅ giveaway_progress exists for ${user.tag} in GA ${ga.id}`);
+          }
+        } catch (err) {
+          console.error(`⚠️ Error resyncing GA ${ga.id}:`, err);
+        }
+      }
     }
   } catch (err) {
-    console.error("⚠️ Error during giveaways resync:", err);
+    console.error('⚠️ Error during giveaways resync:', err);
   }
 
   // 🔹 Refresh invite cache
@@ -110,9 +238,9 @@ client.once('ready', async () => {
         });
       }
     }
-    console.log("✅ Invite cache resynced");
+    console.log('✅ Invite cache resynced');
   } catch (err) {
-    console.error("⚠️ Error refreshing invite cache:", err);
+    console.error('⚠️ Error refreshing invite cache:', err);
   }
 
   // 🕒 Cron: every hour (passive income)
@@ -184,7 +312,7 @@ client.on('messageCreate', async (message) => {
 
   // ✅ Only today’s quest
   const today = new Date().getDate();
-  const quest = quests.find(q => q.day === today && q.type === "messages");
+  const quest = quests.find(q => q.day === today && q.type === 'messages');
   if (!quest) return;
 
   // Fetch current progress
@@ -221,20 +349,8 @@ client.on('messageCreate', async (message) => {
   for (const ga of active) {
     if (!ga.messages_required) continue;
 
-    const { data: row } = await supabase
-      .from('giveaway_progress')
-      .select('*')
-      .eq('giveaway_id', ga.id)
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    const newCount = (row?.messages_count || 0) + 1;
-
-    const { error: gpError } = await supabase.from('giveaway_progress')
-      .upsert({ giveaway_id: ga.id, user_id: userId, messages_count: newCount, invites_count: row?.invites_count || 0 });
-
-    if (gpError) console.error(`❌ Failed to update GA progress: user=${userId}, ga=${ga.id}`, gpError);
-    else console.log(`📩 GA ${ga.id}: ${userId} → messages=${newCount}`);
+    await incrementGiveawayProgress(ga.id, userId, 'messages_count');
+    console.log(`📩 GA ${ga.id}: ${userId} → message recorded`);
   }
 });
 
@@ -255,7 +371,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
     const quests = client.getQuests();
     const today = new Date().getDate();
-    const quest = quests.find(q => q.day === today && q.type === "vc_time");
+    const quest = quests.find(q => q.day === today && q.type === 'vc_time');
     if (!quest) return;
 
     const { data: status, error } = await supabase
@@ -283,7 +399,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 });
 
 // ====================== GIVEAWAY TRACKING ======================
-const invitesCache = new Map();
 client.on('inviteCreate', invite => {
   invitesCache.set(invite.code, { uses: invite.uses, inviter: invite.inviter?.id });
 });
@@ -312,26 +427,14 @@ client.on('guildMemberAdd', async member => {
   for (const ga of active) {
     if (!ga.invites_required) continue;
 
-    const { data: row } = await supabase
-      .from('giveaway_progress')
-      .select('*')
-      .eq('giveaway_id', ga.id)
-      .eq('user_id', inviterId)
-      .maybeSingle();
-
-    const newCount = (row?.invites_count || 0) + 1;
-
-    const { error: gpError } = await supabase.from('giveaway_progress')
-      .upsert({ giveaway_id: ga.id, user_id: inviterId, messages_count: row?.messages_count || 0, invites_count: newCount });
-
-    if (gpError) console.error(`❌ Failed to update GA invites: user=${inviterId}, ga=${ga.id}`, gpError);
-    else console.log(`🎟️ GA ${ga.id}: ${inviterId} → invites=${newCount}`);
+    await incrementGiveawayProgress(ga.id, inviterId, 'invites_count');
+    console.log(`🎟️ GA ${ga.id}: ${inviterId} → invite recorded`);
   }
 });
 
-client.on("messageReactionAdd", async (reaction, user) => {
+client.on('messageReactionAdd', async (reaction, user) => {
   if (user.bot) return;
-  if (reaction.emoji.name !== "🎉") return;
+  if (reaction.emoji.name !== '🎉') return;
 
   if (reaction.partial) await reaction.fetch();
   if (reaction.message.partial) await reaction.message.fetch();
@@ -339,39 +442,23 @@ client.on("messageReactionAdd", async (reaction, user) => {
   const giveawayId = reaction.message.id;
 
   const { data: giveaway } = await supabase
-    .from("giveaways")
-    .select("*")
-    .eq("message_id", giveawayId)
+    .from('giveaways')
+    .select('*')
+    .eq('message_id', giveawayId)
     .single();
 
   if (!giveaway) return;
 
-  const { data: row, error: rowError } = await supabase
-    .from("giveaway_progress")
-    .select("*")
-    .eq("giveaway_id", giveaway.id)
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (rowError) console.error("⚠️ Error fetching giveaway_progress row:", rowError);
-
-  if (!row) {
-    const { error: insertError } = await supabase.from("giveaway_progress").insert({
-      giveaway_id: giveaway.id,
-      user_id: user.id,
-      messages_count: 0,
-      invites_count: 0
-    });
-    if (insertError) console.error(`❌ Failed to insert giveaway_progress for ${user.id}:`, insertError);
-    else console.log(`✅ Created giveaway_progress row for ${user.id} in GA ${giveaway.id}`);
-  }
+  // Ensure progress row exists (but do not increment counts just for reacting)
+  const row = await ensureGiveawayProgressRow(giveaway.id, user.id);
+  if (row) console.log(`✅ Created/confirmed giveaway_progress for ${user.tag} in GA ${giveaway.id}`);
 
   const guild = reaction.message.guild;
   const member = await guild.members.fetch(user.id).catch(() => null);
   if (!member) return;
 
   let eligible = true;
-  let reason = "";
+  let reason = '';
 
   if (giveaway.role_required && !member.roles.cache.has(giveaway.role_required)) {
     eligible = false;
@@ -380,10 +467,10 @@ client.on("messageReactionAdd", async (reaction, user) => {
 
   if (eligible && giveaway.messages_required > 0) {
     const { data: progress } = await supabase
-      .from("giveaway_progress")
-      .select("messages_count")
-      .eq("giveaway_id", giveaway.id)
-      .eq("user_id", user.id)
+      .from('giveaway_progress')
+      .select('messages_count')
+      .eq('giveaway_id', giveaway.id)
+      .eq('user_id', user.id)
       .maybeSingle();
 
     if (!progress || progress.messages_count < giveaway.messages_required) {
@@ -394,10 +481,10 @@ client.on("messageReactionAdd", async (reaction, user) => {
 
   if (eligible && giveaway.invites_required > 0) {
     const { data: progress } = await supabase
-      .from("giveaway_progress")
-      .select("invites_count")
-      .eq("giveaway_id", giveaway.id)
-      .eq("user_id", user.id)
+      .from('giveaway_progress')
+      .select('invites_count')
+      .eq('giveaway_id', giveaway.id)
+      .eq('user_id', user.id)
       .maybeSingle();
 
     if (!progress || progress.invites_count < giveaway.invites_required) {
