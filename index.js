@@ -344,57 +344,46 @@ client.on('messageCreate', async (message) => {
   else console.log(`✅ Quest progress updated: user=${userId}, quest=Day ${today}, progress=${progress}`);
 
   // === Giveaway progress tracking ===
-  const { data: activeGiveaways, error: activeError } = await supabase
+    // Fetch active giveaways requiring messages
+  const { data: activeGiveaways, error } = await supabase
     .from('giveaways')
-    .select('id, ends_at, messages_required')
-    .gt('ends_at', new Date().toISOString());
+    .select('*')
+    .gt('ends_at', new Date().toISOString())
+    .not('messages_required', 'is', null);
 
-  if (activeError) {
-    console.error("❌ Failed to fetch active giveaways:", activeError);
-    return;
-  }
-
-  if (!activeGiveaways || activeGiveaways.length === 0) {
-    console.log("ℹ️ No active giveaways right now.");
-    return;
-  }
+  if (error || !activeGiveaways?.length) return;
 
   for (const ga of activeGiveaways) {
-    if (!ga.messages_required || ga.messages_required <= 0) {
-      console.log(`ℹ️ Skipping GA ${ga.id}, messages_required=${ga.messages_required}`);
-      continue;
-    }
-
-    // Fetch or create user's giveaway progress
-    const { data: row, error: rowError } = await supabase
-      .from('giveaway_progress')
-      .select('*')
-      .eq('giveaway_id', ga.id)
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (rowError) {
-      console.error(`⚠️ Failed to fetch GA ${ga.id} row for user ${userId}:`, rowError);
-      continue;
-    }
-
-    if (row) {
-      const newCount = (row.messages_count || 0) + 1;
-      const { data: updatedRow, error: updateError } = await supabase
+    try {
+      const { data: row, error: rowError } = await supabase
         .from('giveaway_progress')
-        .update({ messages_count: newCount })
+        .select('*')
         .eq('giveaway_id', ga.id)
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .maybeSingle();
 
-      if (updateError) console.error(`❌ [UPDATE FAILED] GA ${ga.id}, user=${userId}, messages=${newCount}:`, updateError);
-      else console.log(`✅ [UPDATED] GA ${ga.id}: user=${userId}, messages=${newCount}`, updatedRow);
-    } else {
-      const { data: insertedRow, error: insertError } = await supabase
-        .from('giveaway_progress')
-        .insert({ giveaway_id: ga.id, user_id: userId, messages_count: 1, invites_count: 0 });
+      if (rowError) {
+        console.error('❌ Failed to fetch progress:', rowError);
+        continue;
+      }
 
-      if (insertError) console.error(`❌ [INSERT FAILED] GA ${ga.id}, user=${userId}, messages=1:`, insertError);
-      else console.log(`✅ [INSERTED] GA ${ga.id}: user=${userId}, messages=1 (new row)`, insertedRow);
+      if (row) {
+        // Update existing row
+        await supabase
+          .from('giveaway_progress')
+          .update({ messages_count: (row.messages_count || 0) + 1 })
+          .eq('giveaway_id', ga.id)
+          .eq('user_id', userId);
+      } else {
+        // Insert new row
+        await supabase
+          .from('giveaway_progress')
+          .insert({ giveaway_id: ga.id, user_id: userId, messages_count: 1, invites_count: 0 });
+      }
+
+      console.log(`✅ GA ${ga.id}: message progress updated for user ${userId}`);
+    } catch (err) {
+      console.error('❌ Error updating giveaway_progress:', err);
     }
   }
 });
@@ -574,6 +563,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
