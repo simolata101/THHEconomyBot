@@ -467,8 +467,7 @@ client.on('guildMemberAdd', async member => {
 });
 
 client.on('messageReactionAdd', async (reaction, user) => {
-  if (user.bot) return;
-  if (reaction.emoji.name !== '🎉') return;
+  if (user.bot || reaction.emoji.name !== '🎉') return;
 
   if (reaction.partial) await reaction.fetch();
   if (reaction.message.partial) await reaction.message.fetch();
@@ -484,9 +483,9 @@ client.on('messageReactionAdd', async (reaction, user) => {
 
   if (!giveaway) return;
 
-  // 🔹 Ensure progress row exists
+  // Ensure progress row exists (it may already exist from message tracking)
   const row = await ensureGiveawayProgressRow(giveaway.id, user.id);
-  if (row) console.log(`✅ Created/confirmed giveaway_progress for ${user.tag} in GA ${giveaway.id}`);
+  if (row) console.log(`✅ giveaway_progress exists for ${user.tag} in GA ${giveaway.id}`);
 
   const guild = reaction.message.guild;
   const member = await guild.members.fetch(user.id).catch(() => null);
@@ -495,13 +494,13 @@ client.on('messageReactionAdd', async (reaction, user) => {
   let eligible = true;
   let reason = '';
 
-  // Check role requirement
+  // Role check
   if (giveaway.role_required && !member.roles.cache.has(giveaway.role_required)) {
     eligible = false;
     reason = `You must have <@&${giveaway.role_required}> to join this giveaway.`;
   }
 
-  // Check message requirement
+  // Messages requirement check
   if (eligible && giveaway.messages_required > 0) {
     const { data: progress } = await supabase
       .from('giveaway_progress')
@@ -516,7 +515,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     }
   }
 
-  // Check invite requirement
+  // Invites requirement check
   if (eligible && giveaway.invites_required > 0) {
     const { data: progress } = await supabase
       .from('giveaway_progress')
@@ -532,17 +531,17 @@ client.on('messageReactionAdd', async (reaction, user) => {
   }
 
   if (!eligible) {
-    // Remove reaction if ineligible
     try {
       await reaction.users.remove(user.id);
-      console.log(`❌ Removed ineligible reaction from ${user.tag} (${user.id}): ${reason}`);
+      console.log(`❌ Removed ineligible reaction from ${user.tag}: ${reason}`);
     } catch (err) {
       console.error(`⚠️ Failed to remove reaction for ${user.tag}:`, err);
     }
   } else {
-    console.log(`✅ ${user.tag} (${user.id}) successfully entered GA ${giveaway.id}`);
+    console.log(`✅ ${user.tag} successfully entered GA ${giveaway.id}`);
   }
 });
+
 
 
 client.on('interactionCreate', async (interaction) => {
@@ -563,6 +562,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
