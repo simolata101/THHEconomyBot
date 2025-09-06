@@ -78,6 +78,90 @@ for (const file of fs.readdirSync(commandsPath)) {
   }
 })();
 
+// ====================== HELPERS FOR GIVEAWAY_PROGRESS ======================
+async function ensureGiveawayProgressRow(gaId, userId) {
+  console.log('ensureGiveawayProgressRow');
+  try {
+    const { data: row, error } = await supabase
+      .from('giveaway_progress')
+      .select('*')
+      .eq('giveaway_id', gaId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('⚠️ Error checking giveaway_progress row:', error);
+      return null;
+    }
+
+    if (row) return row;
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('giveaway_progress')
+      .insert({ giveaway_id: gaId, user_id: userId, messages_count: 0, invites_count: 0 })
+      .select()
+      .maybeSingle();
+
+    if (insertError) {
+      console.error('❌ Failed to insert giveaway_progress row:', insertError);
+      return null;
+    }
+
+    return inserted;
+  } catch (err) {
+    console.error('❌ ensureGiveawayProgressRow unexpected error:', err);
+    return null;
+  }
+}
+
+async function incrementGiveawayProgress(gaId, userId, field) {
+  console.log('incrementGiveawayProgress');
+  try {
+    const { data: row, error } = await supabase
+      .from('giveaway_progress')
+      .select('*')
+      .eq('giveaway_id', gaId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('⚠️ Fetch error in giveaway_progress:', error);
+      return;
+    }
+
+    if (row) {
+      const updateData = {
+        messages_count: row.messages_count || 0,
+        invites_count: row.invites_count || 0
+      };
+      if (field === 'messages_count') updateData.messages_count += 1;
+      if (field === 'invites_count') updateData.invites_count += 1;
+
+      const { error: updateError } = await supabase
+        .from('giveaway_progress')
+        .update(updateData)
+        .eq('giveaway_id', gaId)
+        .eq('user_id', userId);
+
+      if (updateError) console.error('❌ Update failed in giveaway_progress:', updateError);
+    } else {
+      const insertData = {
+        giveaway_id: gaId,
+        user_id: userId,
+        messages_count: field === 'messages_count' ? 1 : 0,
+        invites_count: field === 'invites_count' ? 1 : 0
+      };
+      const { error: insertError } = await supabase
+        .from('giveaway_progress')
+        .insert(insertData);
+
+      if (insertError) console.error('❌ Insert failed in giveaway_progress:', insertError);
+    }
+  } catch (err) {
+    console.error('❌ incrementGiveawayProgress unexpected error:', err);
+  }
+}
+
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
@@ -303,45 +387,47 @@ client.on('guildMemberAdd', async member => {
 });
 
 
-client.on("messageReactionAdd", async (reaction, user) => {
-  if (user.bot) return;
-  if (reaction.emoji.name !== "🎉") return;
+client.on('messageReactionAdd', async (reaction, user) => {
+  if (user.bot || reaction.emoji.name !== '🎉') return;
 
-  // Fetch partials
   if (reaction.partial) await reaction.fetch();
   if (reaction.message.partial) await reaction.message.fetch();
 
   const giveawayId = reaction.message.id;
 
-  // Check if this message is a giveaway (in memory OR DB)
+  // Fetch giveaway
   const { data: giveaway } = await supabase
-    .from("giveaways")
-    .select("*")
-    .eq("message_id", giveawayId)
+    .from('giveaways')
+    .select('*')
+    .eq('message_id', giveawayId)
     .single();
 
-  if (!giveaway) return; // Not a giveaway
+  if (!giveaway) return;
+
+  // Ensure progress row exists (it may already exist from message tracking)
+  const row = await ensureGiveawayProgressRow(giveaway.id, user.id);
+  if (row) console.log(`✅ giveaway_progress exists for ${user.tag} in GA ${giveaway.id}`);
 
   const guild = reaction.message.guild;
   const member = await guild.members.fetch(user.id).catch(() => null);
   if (!member) return;
 
   let eligible = true;
-  let reason = "";
+  let reason = '';
 
-  // 🔹 Role requirement
+  // Role check
   if (giveaway.role_required && !member.roles.cache.has(giveaway.role_required)) {
     eligible = false;
     reason = `You must have <@&${giveaway.role_required}> to join this giveaway.`;
   }
 
-  // 🔹 Messages requirement
+  // Messages requirement check
   if (eligible && giveaway.messages_required > 0) {
     const { data: progress } = await supabase
-      .from("giveaway_progress")
-      .select("messages_count")
-      .eq("giveaway_id", giveaway.id)
-      .eq("user_id", user.id)
+      .from('giveaway_progress')
+      .select('messages_count')
+      .eq('giveaway_id', giveaway.id)
+      .eq('user_id', user.id)
       .maybeSingle();
 
     if (!progress || progress.messages_count < giveaway.messages_required) {
@@ -350,13 +436,13 @@ client.on("messageReactionAdd", async (reaction, user) => {
     }
   }
 
-  // 🔹 Invites requirement
+  // Invites requirement check
   if (eligible && giveaway.invites_required > 0) {
     const { data: progress } = await supabase
-      .from("giveaway_progress")
-      .select("invites_count")
-      .eq("giveaway_id", giveaway.id)
-      .eq("user_id", user.id)
+      .from('giveaway_progress')
+      .select('invites_count')
+      .eq('giveaway_id', giveaway.id)
+      .eq('user_id', user.id)
       .maybeSingle();
 
     if (!progress || progress.invites_count < giveaway.invites_required) {
@@ -365,14 +451,15 @@ client.on("messageReactionAdd", async (reaction, user) => {
     }
   }
 
-  // ❌ Not eligible → remove reaction + DM user
-   if (!eligible) {
-      try {
-        await reaction.users.remove(user.id);
-        console.log(`❌ Removed ineligible reaction from ${user.tag} (${user.id})`);
-      } catch (err) {
-        console.error(`⚠️ Failed to remove reaction for ${user.tag}:`, err);
-      }
+  if (!eligible) {
+    try {
+      await reaction.users.remove(user.id);
+      console.log(`❌ Removed ineligible reaction from ${user.tag}: ${reason}`);
+    } catch (err) {
+      console.error(`⚠️ Failed to remove reaction for ${user.tag}:`, err);
+    }
+  } else {
+    console.log(`✅ ${user.tag} successfully entered GA ${giveaway.id}`);
   }
 });
 
@@ -398,6 +485,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
