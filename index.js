@@ -243,6 +243,62 @@ client.once('ready', async () => {
     console.error('⚠️ Error refreshing invite cache:', err);
   }
 
+// ✅ Cron job for checkpoint updates every 10 minutes
+cron.schedule('*/10 * * * *', async () => {
+  console.log('⏰ Running VC checkpoint update...');
+
+  const quests = client.getQuests();
+  const today = new Date();
+  const dayOfMonth = today.getDate(); // 1–31
+  const quest = quests.find(q => q.day === dayOfMonth && q.type === "vc_time");
+
+  if (!quest) return;
+
+  const questId = quest.day.toString();
+  const target = quest.requirements?.minutes || 0;
+
+  for (const [userId, joinTime] of vcJoinTimes.entries()) {
+    const minutes = Math.floor((Date.now() - joinTime) / 60000);
+
+    // Fetch current progress
+    const { data: status, error } = await supabase
+      .from('quests_status')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('quest_id', questId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('❌ Supabase fetch failed (VC checkpoint):', error);
+      continue;
+    }
+
+    const progress = (status?.progress || 0) + minutes;
+    const completed = progress >= target;
+
+    // Update or insert progress
+    const { error: upsertError } = status
+      ? await supabase.from('quests_status')
+          .update({ progress, completed, last_updated: new Date().toISOString() })
+          .eq('user_id', userId)
+          .eq('quest_id', questId)
+      : await supabase.from('quests_status')
+          .insert({ 
+            user_id: userId, 
+            quest_id: questId, 
+            progress, 
+            completed,
+            last_updated: new Date().toISOString()
+          });
+
+    if (upsertError) {
+      console.error('❌ Quest checkpoint update failed (VC):', upsertError);
+    } else {
+      console.log(`✅ VC checkpoint progress saved: user=${userId}, quest=Day ${questId}, progress=${progress}`);
+    }
+  }
+});
+
   // 🕒 Cron: every hour (passive income)
   cron.schedule('0 * * * *', async () => {
     console.log('🏛️ Running passive income cron...');
@@ -595,6 +651,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
