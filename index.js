@@ -387,8 +387,10 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     const quests = client.getQuests();
 
     // Figure out which quest corresponds to today
-    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-    const quest = quests.find(q => q.day === dayOfYear && q.type === "vc_time");
+    const today = new Date();
+    const dayOfMonth = today.getDate(); // 1–31
+    const quest = quests.find(q => q.day === dayOfMonth && q.type === "vc_time");
+
     if (!quest) return;
 
     const questId = quest.day.toString(); // <-- use quest's day number as quest_id
@@ -592,6 +594,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
