@@ -302,7 +302,9 @@ module.exports = {
 
       if (action === 'buy') {
         const cost = price * amount;
-        if (cost > (user.balance || 0)) return interaction.reply({ content: 'Not enough money', ephemeral: true });
+        if (cost > (user.balance || 0)) {
+          return interaction.reply({ content: 'Not enough money', ephemeral: true });
+        }
         await supabase.from('users').update({ balance: user.balance - cost }).eq('id', uid);
         return interaction.reply(`📈 Bought ${amount} stock(s) at ${price} each for ${cost}.`);
       } else {
@@ -315,7 +317,11 @@ module.exports = {
     // 📦 AUCTION
     if (sub === 'auction') {
       const starting = interaction.options.getInteger('starting');
-      const { data } = await supabase.from('shop_items').insert({ name: `Auction by ${uid}`, price: starting }).select().single();
+      const { data } = await supabase
+        .from('shop_items')
+        .insert({ name: `Auction by ${uid}`, price: starting })
+        .select()
+        .single();
       return interaction.reply(`📦 Created auction item with starting price ${starting}. Item id ${data.id}`);
     }
 
@@ -325,12 +331,17 @@ module.exports = {
       const costPer = 10;
       const total = tickets * costPer;
       const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
-      if (total > (user.balance || 0)) return interaction.reply({ content: 'Not enough funds for tickets', ephemeral: true });
+
+      if (total > (user.balance || 0)) {
+        return interaction.reply({ content: 'Not enough funds for tickets', ephemeral: true });
+      }
+
       await supabase.from('users').update({ balance: user.balance - total }).eq('id', uid);
       return interaction.reply(`🎟️ Bought ${tickets} tickets for ${total} credits.`);
     }
   }
 };
+
 
 // NOTE: Removed helpers.shuffleDeck since Blackjack is gone.
 
