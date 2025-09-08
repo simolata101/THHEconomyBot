@@ -427,68 +427,16 @@ client.on('messageCreate', async (message) => {
 client.on('voiceStateUpdate', async (oldState, newState) => {
   const userId = newState.id;
 
-  // User joins VC
+  // User joins VC → save join time
   if (!oldState.channelId && newState.channelId) {
     vcJoinTimes.set(userId, Date.now());
     console.log(`🎙️ User ${userId} joined VC ${newState.channel?.name || newState.channelId}`);
   }
 
-  // User leaves VC
+  // User leaves VC → cleanup only
   if (oldState.channelId && !newState.channelId) {
-    const joinTime = vcJoinTimes.get(userId);
-    if (!joinTime) return;
-
-    const minutes = Math.floor((Date.now() - joinTime) / 60000);
     vcJoinTimes.delete(userId);
-
-    const quests = client.getQuests();
-
-    // Figure out which quest corresponds to today
-    const today = new Date();
-    const dayOfMonth = today.getDate(); // 1–31
-    const quest = quests.find(q => q.day === dayOfMonth && q.type === "vc_time");
-
-    if (!quest) return;
-
-    const questId = quest.day.toString(); // <-- use quest's day number as quest_id
-
-    // Fetch current progress
-    const { data: status, error } = await supabase
-      .from('quests_status')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('quest_id', questId)
-      .maybeSingle();
-
-    if (error) {
-      console.error('❌ Supabase fetch failed (VC):', error);
-      return;
-    }
-
-    const target = quest.requirements?.minutes || 0;
-    const progress = (status?.progress || 0) + minutes;
-    const completed = progress >= target;
-
-    // Update or insert progress
-    const { error: upsertError } = status
-      ? await supabase.from('quests_status')
-          .update({ progress, completed, last_updated: new Date().toISOString() })
-          .eq('user_id', userId)
-          .eq('quest_id', questId)
-      : await supabase.from('quests_status')
-          .insert({ 
-            user_id: userId, 
-            quest_id: questId, 
-            progress, 
-            completed,
-            last_updated: new Date().toISOString()
-          });
-
-    if (upsertError) {
-      console.error('❌ Quest insert/update failed (VC):', upsertError);
-    } else {
-      console.log(`✅ VC quest progress updated: user=${userId}, quest=Day ${questId}, progress=${progress}`);
-    }
+    console.log(`👋 User ${userId} left VC`);
   }
 });
 
@@ -651,6 +599,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
