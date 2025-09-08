@@ -110,7 +110,7 @@ module.exports = {
       const manilaOffset = 8 * 60; // minutes offset
       const local = new Date(now.getTime() + (manilaOffset - now.getTimezoneOffset()) * 60000);
 
-      const today = local.getDate().ToString(); // Manila day of the month
+      const today = local.getDate().toString(); // Manila day of the month
 
       const todayProgress = progress.find(p => p.quest_id === today);
 
@@ -301,4 +301,5 @@ module.exports = {
   getQuests,
   findQuest
 };
+
 
