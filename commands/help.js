@@ -42,7 +42,8 @@ module.exports = {
         description: 'Track and complete daily quests',
         commands: [
           { name: '/quests status', description: 'Check quest progress' },
-          { name: '/quests info', description: 'Get info about a quest' }
+          { name: '/quests info', description: 'Get info about a quest' },
+          { name: '/quests claim', description: 'Claim your quest credit' }
         ],
         color: 0x0099ff,
         emoji: '📜'
@@ -159,4 +160,5 @@ module.exports = {
       });
     });
   }
+
 };
