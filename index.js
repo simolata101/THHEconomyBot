@@ -374,6 +374,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
   // User joins VC
   if (!oldState.channelId && newState.channelId) {
     vcJoinTimes.set(userId, Date.now());
+    console.log(`🎙️ User ${userId} joined VC ${newState.channel?.name || newState.channelId}`);
   }
 
   // User leaves VC
@@ -594,6 +595,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
