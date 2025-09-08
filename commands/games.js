@@ -222,61 +222,76 @@ module.exports = {
 
       // 🗼 TOWER
       if (game === 'tower') {
-        let multiplier = 1;
-        const startingBalance = user.balance;
-
-        const baseEmbed = () =>
-          new EmbedBuilder()
-            .setTitle('🗼 Tower Game')
-            .setDescription(`Bet: **${amount}** credits\nMultiplier: **x${multiplier.toFixed(1)}**`)
-            .setColor(0x9b59b6);
-
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('raise').setLabel('Raise Tower').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId('cashout').setLabel('Cash Out').setStyle(ButtonStyle.Success)
-        );
-
-        const msg = await interaction.reply({ embeds: [baseEmbed()], components: [row], fetchReply: true });
-        const collector = msg.createMessageComponentCollector({ time: 30000 });
-
-        collector.on('collect', async btn => {
-          if (btn.user.id !== uid) return btn.reply({ content: 'Not your game!', ephemeral: true });
-
-          if (btn.customId === 'raise') {
-            if (Math.random() > winChance) {
-              await supabase.from('users').update({ balance: startingBalance - amount }).eq('id', uid);
-              const failEmbed = new EmbedBuilder()
-                .setTitle('🗼 Tower Game - Collapsed')
-                .setDescription(`❌ The tower collapsed!\nYou lost **${amount}** credits.`)
-                .setColor(0xe74c3c);
-              collector.stop();
-              return btn.update({ embeds: [failEmbed], components: [] });
+          let multiplier = 1;
+          const startingBalance = user.balance;
+        
+          // base winChance depending on bet size vs total funds
+          const totalFunds = (user.balance || 0) + (user.bank_balance || 0);
+          let baseChance = 1 - (0.6 * (amount / totalFunds));
+          if (baseChance < 0.4) baseChance = 0.4; // floor at 40%
+        
+          const baseEmbed = () =>
+            new EmbedBuilder()
+              .setTitle('🗼 Tower Game')
+              .setDescription(`Bet: **${amount}** credits\nMultiplier: **x${multiplier.toFixed(1)}**`)
+              .setColor(0x9b59b6);
+        
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('raise').setLabel('Raise Tower').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('cashout').setLabel('Cash Out').setStyle(ButtonStyle.Success)
+          );
+        
+          const msg = await interaction.reply({ embeds: [baseEmbed()], components: [row], fetchReply: true });
+          const collector = msg.createMessageComponentCollector({ time: 30000 });
+        
+          collector.on('collect', async btn => {
+            if (btn.user.id !== uid) return btn.reply({ content: 'Not your game!', ephemeral: true });
+        
+            if (btn.customId === 'raise') {
+              // make it harder: chance decreases slightly with each multiplier step
+              let effectiveChance = baseChance - (0.05 * (multiplier - 1)); 
+              if (effectiveChance < 0.4) effectiveChance = 0.4; // never drop below 40%
+        
+              if (Math.random() > effectiveChance) {
+                await supabase.from('users').update({ balance: startingBalance - amount }).eq('id', uid);
+                const failEmbed = new EmbedBuilder()
+                  .setTitle('🗼 Tower Game - Collapsed')
+                  .setDescription(`❌ The tower collapsed!\nYou lost **${amount}** credits.`)
+                  .setColor(0xe74c3c);
+                collector.stop();
+                return btn.update({ embeds: [failEmbed], components: [] });
+              }
+        
+              multiplier += 0.5;
+              return btn.update({
+                embeds: [baseEmbed().setDescription(
+                  `Bet: **${amount}** credits\nMultiplier: **x${multiplier.toFixed(1)}**\n\nKeep raising or cash out?`
+                )],
+                components: [row]
+              });
             }
-            multiplier += 0.5;
-            return btn.update({ embeds: [baseEmbed().setDescription(`Bet: **${amount}** credits\nMultiplier: **x${multiplier.toFixed(1)}**\n\nKeep raising or cash out?`)], components: [row] });
-          }
+        
+            if (btn.customId === 'cashout') {
+              const winnings = Math.floor(amount * multiplier);
+              await supabase.from('users').update({ balance: startingBalance + winnings }).eq('id', uid);
+              const winEmbed = new EmbedBuilder()
+                .setTitle('🗼 Tower Game - Cashed Out')
+                .setDescription(`✅ You cashed out at **x${multiplier.toFixed(1)}**!\nWinnings: **${winnings}** credits.`)
+                .setColor(0x2ecc71);
+              collector.stop();
+              return btn.update({ embeds: [winEmbed], components: [] });
+            }
+          });
+        
+          collector.on('end', async (collected) => {
+            if (collected.size === 0) {
+              try { await msg.edit({ components: [] }); } catch {}
+            }
+          });
+        
+          return;
+        }
 
-          if (btn.customId === 'cashout') {
-            const winnings = Math.floor(amount * multiplier);
-            await supabase.from('users').update({ balance: startingBalance + winnings }).eq('id', uid);
-            const winEmbed = new EmbedBuilder()
-              .setTitle('🗼 Tower Game - Cashed Out')
-              .setDescription(`✅ You cashed out at **x${multiplier.toFixed(1)}**!\nWinnings: **${winnings}** credits.`)
-              .setColor(0x2ecc71);
-            collector.stop();
-            return btn.update({ embeds: [winEmbed], components: [] });
-          }
-        });
-
-        collector.on('end', async (collected) => {
-          if (collected.size === 0) {
-            try { await msg.edit({ components: [] }); } catch {}
-          }
-        });
-
-        return;
-      }
-    }
 
     // 📈 STOCK
     if (sub === 'stock') {
@@ -318,3 +333,4 @@ module.exports = {
 };
 
 // NOTE: Removed helpers.shuffleDeck since Blackjack is gone.
+
