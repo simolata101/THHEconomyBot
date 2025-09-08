@@ -291,7 +291,7 @@ module.exports = {
         
           return;
         }
-
+    }
 
     // 📈 STOCK
     if (sub === 'stock') {
@@ -344,4 +344,5 @@ module.exports = {
 
 
 // NOTE: Removed helpers.shuffleDeck since Blackjack is gone.
+
 
