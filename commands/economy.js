@@ -199,9 +199,13 @@ module.exports = {
                 // 💰 Award reward now
                 const reward = quest.reward || {}; // { credits: 100, gems: 5 }
       
+                const creditsReward = reward.credits || 0;
+                const gemsReward = reward.gems || 0;
+      
                 await supabase.from('users')
                   .update({
-                    balance: (user.balance || 0) + (reward || 0)
+                    balance: (user.balance || 0) + creditsReward,
+                    gems: (user.gems || 0) + gemsReward
                   })
                   .eq('id', uid);
       
@@ -209,9 +213,10 @@ module.exports = {
                 await supabase.from('quests_status')
                   .update({ reward_claimed: true })
                   .eq('user_id', uid)
-                  .eq('quest_id', today);
+                  .eq('quest_id', today)
+                  .eq('reward_claimed', false); // extra safety
       
-                questText = `🎉 **Quest Completed!**\nReward claimed: **+${reward || 0} credits**`;
+                questText = `🎉 **Quest Completed!**\nReward claimed: **+${creditsReward} credits**${gemsReward > 0 ? `, **+${gemsReward} gems**` : ''}`;
               } else {
                 questText = `✅ Quest already completed and reward claimed.`;
               }
@@ -255,6 +260,7 @@ module.exports = {
           )]
         });
       }
+
 
 
     if (sub === 'bank') {
@@ -303,6 +309,7 @@ module.exports = {
     }
   }
 };
+
 
 
 
