@@ -385,34 +385,54 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
     vcJoinTimes.delete(userId);
 
     const quests = client.getQuests();
-    const today = new Date().getDate();
-    const quest = quests.find(q => q.day === today && q.type === "vc_time");
+
+    // Figure out which quest corresponds to today
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+    const quest = quests.find(q => q.day === dayOfYear && q.type === "vc_time");
     if (!quest) return;
+
+    const questId = quest.day.toString(); // <-- use quest's day number as quest_id
 
     // Fetch current progress
     const { data: status, error } = await supabase
       .from('quests_status')
       .select('*')
       .eq('user_id', userId)
-      .eq('quest_id', today)
+      .eq('quest_id', questId)
       .maybeSingle();
+
+    if (error) {
+      console.error('❌ Supabase fetch failed (VC):', error);
+      return;
+    }
 
     const target = quest.requirements?.minutes || 0;
     const progress = (status?.progress || 0) + minutes;
     const completed = progress >= target;
 
+    // Update or insert progress
     const { error: upsertError } = status
       ? await supabase.from('quests_status')
-          .update({ progress, completed })
+          .update({ progress, completed, last_updated: new Date().toISOString() })
           .eq('user_id', userId)
-          .eq('quest_id', today)
+          .eq('quest_id', questId)
       : await supabase.from('quests_status')
-          .insert({ user_id: userId, quest_id: today, progress, completed });
+          .insert({ 
+            user_id: userId, 
+            quest_id: questId, 
+            progress, 
+            completed,
+            last_updated: new Date().toISOString()
+          });
 
-    if (upsertError) console.error('❌ Quest insert/update failed (VC):', upsertError);
-    else console.log(`✅ VC quest progress updated: user=${userId}, quest=Day ${today}, progress=${progress}`);
+    if (upsertError) {
+      console.error('❌ Quest insert/update failed (VC):', upsertError);
+    } else {
+      console.log(`✅ VC quest progress updated: user=${userId}, quest=Day ${questId}, progress=${progress}`);
+    }
   }
 });
+
 
 
 const invitesCache = new Map();
