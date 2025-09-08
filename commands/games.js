@@ -92,6 +92,12 @@ module.exports = {
         return interaction.reply({ content: '❌ Invalid amount', ephemeral: true });
       }
 
+      // calculate dynamic win chance
+      const totalWealth = (user.balance || 0) + (user.bank_balance || 0);
+      let ratio = totalWealth > 0 ? (amount / totalWealth) : 1;
+      let winChance = 1 - (0.6 * ratio); // higher bet ratio = lower win chance
+      if (winChance < 0.4) winChance = 0.4; // enforce minimum 40%
+
       // 🪙 COINFLIP (guess Heads/Tails)
       if (game === 'coinflip') {
         const guessRow = new ActionRowBuilder().addComponents(
@@ -111,7 +117,12 @@ module.exports = {
           if (btn.user.id !== uid) return btn.reply({ content: 'Not your game!', ephemeral: true });
 
           const guess = btn.customId.includes('heads') ? 'Heads' : 'Tails';
-          const flip = Math.random() < 0.5 ? 'Heads' : 'Tails';
+          let flip;
+          if (Math.random() < winChance) {
+            flip = guess; // force win
+          } else {
+            flip = guess === 'Heads' ? 'Tails' : 'Heads'; // force lose
+          }
 
           let resultText, color;
           if (guess === flip) {
@@ -137,7 +148,7 @@ module.exports = {
         return;
       }
 
-      // ✊✋✌️ ROCK-PAPER-SCISSORS (replacing Blackjack)
+      // ✊✋✌️ ROCK-PAPER-SCISSORS
       if (game === 'rps') {
         const choices = ['rock', 'paper', 'scissors'];
         const emojis = { rock: '✊', paper: '✋', scissors: '✌️' };
@@ -160,7 +171,19 @@ module.exports = {
           if (btn.user.id !== uid) return btn.reply({ content: 'Not your game!', ephemeral: true });
 
           const playerChoice = btn.customId;
-          const botChoice = choices[Math.floor(Math.random() * choices.length)];
+          let botChoice;
+
+          if (Math.random() < winChance) {
+            // bot plays to lose
+            if (playerChoice === 'rock') botChoice = 'scissors';
+            if (playerChoice === 'paper') botChoice = 'rock';
+            if (playerChoice === 'scissors') botChoice = 'paper';
+          } else {
+            // bot plays to win
+            if (playerChoice === 'rock') botChoice = 'paper';
+            if (playerChoice === 'paper') botChoice = 'scissors';
+            if (playerChoice === 'scissors') botChoice = 'rock';
+          }
 
           let result, color;
           if (playerChoice === botChoice) {
@@ -220,8 +243,7 @@ module.exports = {
           if (btn.user.id !== uid) return btn.reply({ content: 'Not your game!', ephemeral: true });
 
           if (btn.customId === 'raise') {
-            // 30% chance to fail
-            if (Math.random() < 0.3) {
+            if (Math.random() > winChance) {
               await supabase.from('users').update({ balance: startingBalance - amount }).eq('id', uid);
               const failEmbed = new EmbedBuilder()
                 .setTitle('🗼 Tower Game - Collapsed')
