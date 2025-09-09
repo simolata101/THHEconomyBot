@@ -1,6 +1,29 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const helpers = require('./helpers');
 
+// ================= COOLDOWNS CONFIG =================
+// Load from ENV (JSON string), fallback to defaults
+let cooldownConfig = {};
+try {
+  cooldownConfig = JSON.parse(process.env.ECONOMY_COOLDOWNS || "{}");
+} catch {
+  console.warn("⚠️ ECONOMY_COOLDOWNS env var is not valid JSON. Using defaults.");
+}
+
+const DEFAULT_COOLDOWNS = {
+  work: 30 * 1000,     // 30s
+  daily: 5 * 1000,     // 5s safety
+  hourly: 5 * 1000,    // 5s safety
+  idle: 10 * 1000,     // 10s
+  balance: 5 * 1000,   // 5s
+  bank: 5 * 1000       // 5s
+};
+
+const COOLDOWNS = { ...DEFAULT_COOLDOWNS, ...cooldownConfig };
+
+// Runtime cooldowns map
+const cooldowns = new Map();
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('economy')
@@ -24,17 +47,30 @@ module.exports = {
     const makeEmbed = (title, description, color = 0x2f3136) =>
       new EmbedBuilder().setTitle(title).setDescription(description).setColor(color);
 
+    // ================= COOLDOWN CHECK =================
+    const key = `${uid}-${sub}`;
+    const now = Date.now();
+    const cooldownTime = COOLDOWNS[sub] || 0;
+    const lastUsed = cooldowns.get(key);
+
+    if (lastUsed && now - lastUsed < cooldownTime) {
+      const remaining = Math.ceil((cooldownTime - (now - lastUsed)) / 1000);
+      return interaction.reply({
+        embeds: [makeEmbed('⏳ Slow Down', `Please wait **${remaining}s** before using \`/${sub}\` again.`, 0xff9900)],
+        ephemeral: true
+      });
+    }
+
+    cooldowns.set(key, now);
+
+    // ================= ORIGINAL LOGIC =================
     if (sub === 'work') {
       const pay = helpers.randomBetween(20, 150);
-    
-      // Fetch current balance
       const { data: user } = await supabase.from('users').select('balance').eq('id', uid).single();
       const newBalance = (user?.balance || 0) + pay;
-    
-      // Update balance without overwriting existing credits
       await supabase.from('users')
         .upsert({ id: uid, balance: newBalance }, { onConflict: ['id'], returning: 'minimal' });
-    
+
       return interaction.reply({
         embeds: [makeEmbed('💼 Work Complete', `You worked and earned **${pay} credits**!`, 0x00ff00)]
       });
@@ -46,22 +82,22 @@ module.exports = {
       const last = user?.last_daily ? new Date(user.last_daily) : null;
       const dayMs = 24 * 60 * 60 * 1000;
       let streak = user?.streak || 0;
-    
+
       if (!last || (now - last) > dayMs) {
         const reward = 100 + streak * 10;
         streak = last && (now - last) < (2 * dayMs) ? streak + 1 : 1;
-    
+
         let totalCredits = reward;
         let totalGems = 0;
         let breakdown = [`Base reward: **${reward} credits**`];
-    
+
         // 🏢 Building bonuses
         const { data: inv } = await supabase
           .from('inventory')
           .select('quantity, shop_items(name, effect)')
           .eq('user_id', uid)
           .eq('shop_items.type', 'building');
-    
+
         if (inv && inv.length > 0) {
           for (const row of inv) {
             const qty = row.quantity || 1;
@@ -80,7 +116,7 @@ module.exports = {
             });
           }
         }
-    
+
         await supabase.from('users')
           .update({
             balance: (user.balance || 0) + totalCredits,
@@ -89,7 +125,7 @@ module.exports = {
             last_daily: now.toISOString()
           })
           .eq('id', uid);
-    
+
         return interaction.reply({
           embeds: [makeEmbed('📅 Daily Reward',
             breakdown.join('\n') + `\n\n**Final Total:** ${totalCredits} credits, ${totalGems} gems\nStreak: **${streak}**`, 0x00ffcc)]
@@ -102,67 +138,62 @@ module.exports = {
       }
     }
 
-
     if (sub === 'hourly') {
-        const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
-        const now = new Date();
-        const last = user?.last_hourly ? new Date(user.last_hourly) : null;
-        const hourMs = 60 * 60 * 1000;
-      
-        if (!last || (now - last) > hourMs) {
-          // 🏆 Base reward (fixed, no streak)
-          const reward = 10; 
-          let totalCredits = reward;
-          let totalGems = 0;
-          let breakdown = [`Base reward: **${reward} credits**`];
-      
-          // 🏢 Building bonuses (per-hour effects)
-          const { data: inv } = await supabase
-            .from('inventory')
-            .select('quantity, shop_items(name, effect)')
-            .eq('user_id', uid)
-            .eq('shop_items.type', 'building');
-      
-          if (inv && inv.length > 0) {
-            for (const row of inv) {
-              const qty = row.quantity || 1;
-              const effect = row.shop_items.effect || '';
-              effect.split(',').forEach(e => {
-                const [k, v] = e.split(':');
-                const amount = parseInt(v) * qty;
-      
-                if (k === 'credits_per_hour') {
-                  totalCredits += amount;
-                  breakdown.push(`${row.shop_items.name}: **+${amount} credits**`);
-                }
-                if (k === 'gems_per_hour') {
-                  totalGems += amount;
-                  breakdown.push(`${row.shop_items.name}: **+${amount} gems**`);
-                }
-              });
-            }
-          }
-      
-          await supabase.from('users')
-            .update({
-              balance: (user.balance || 0) + totalCredits,
-              gems: (user.gems || 0) + totalGems,
-              last_hourly: now.toISOString()
-            })
-            .eq('id', uid);
-      
-          return interaction.reply({
-            embeds: [makeEmbed('⏰ Hourly Reward',
-              breakdown.join('\n') + `\n\n**Final Total:** ${totalCredits} credits, ${totalGems} gems`, 0x00ccff)]
-          });
-        } else {
-          return interaction.reply({
-            embeds: [makeEmbed('⚠️ Already Claimed', 'You already claimed your hourly reward. Come back next hour.', 0xff0000)],
-            ephemeral: true
-          });
-        }
-      }
+      const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
+      const now = new Date();
+      const last = user?.last_hourly ? new Date(user.last_hourly) : null;
+      const hourMs = 60 * 60 * 1000;
 
+      if (!last || (now - last) > hourMs) {
+        const reward = 10;
+        let totalCredits = reward;
+        let totalGems = 0;
+        let breakdown = [`Base reward: **${reward} credits**`];
+
+        const { data: inv } = await supabase
+          .from('inventory')
+          .select('quantity, shop_items(name, effect)')
+          .eq('user_id', uid)
+          .eq('shop_items.type', 'building');
+
+        if (inv && inv.length > 0) {
+          for (const row of inv) {
+            const qty = row.quantity || 1;
+            const effect = row.shop_items.effect || '';
+            effect.split(',').forEach(e => {
+              const [k, v] = e.split(':');
+              const amount = parseInt(v) * qty;
+              if (k === 'credits_per_hour') {
+                totalCredits += amount;
+                breakdown.push(`${row.shop_items.name}: **+${amount} credits**`);
+              }
+              if (k === 'gems_per_hour') {
+                totalGems += amount;
+                breakdown.push(`${row.shop_items.name}: **+${amount} gems**`);
+              }
+            });
+          }
+        }
+
+        await supabase.from('users')
+          .update({
+            balance: (user.balance || 0) + totalCredits,
+            gems: (user.gems || 0) + totalGems,
+            last_hourly: now.toISOString()
+          })
+          .eq('id', uid);
+
+        return interaction.reply({
+          embeds: [makeEmbed('⏰ Hourly Reward',
+            breakdown.join('\n') + `\n\n**Final Total:** ${totalCredits} credits, ${totalGems} gems`, 0x00ccff)]
+        });
+      } else {
+        return interaction.reply({
+          embeds: [makeEmbed('⚠️ Already Claimed', 'You already claimed your hourly reward. Come back next hour.', 0xff0000)],
+          ephemeral: true
+        });
+      }
+    }
 
     if (sub === 'idle') {
       const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
@@ -175,98 +206,90 @@ module.exports = {
     }
 
     if (sub === 'balance') {
-        const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
-      
-        // ================= QUEST CHECK =================
-        const quests = await supabase.storage.from('quests').download('quests.json');
-        let questText = "No active quest today.";
-        if (quests.data) {
-          const text = await quests.data.text();
-          const allQuests = JSON.parse(text);
-      
-          const today = new Date().getDate();
-          const quest = allQuests.find(q => q.day === today);
-          if (quest) {
-            // Get progress from quests_status
-            const { data: status } = await supabase
-              .from('quests_status')
-              .select('*')
-              .eq('user_id', uid)
-              .eq('quest_id', today)
-              .maybeSingle();
-      
-            const target = quest.requirements?.count || quest.requirements?.minutes || 0;
-            const progress = status?.progress || 0;
-            const completed = progress >= target;
-      
-            if (completed) {
-              if (!status?.reward_claimed) {
-                // 💰 Award reward now
-                const reward = quest.reward || {}; // { credits: 100, gems: 5 }
-      
-                const creditsReward = reward.credits || 0;
-                const gemsReward = reward.gems || 0;
-      
-                await supabase.from('users')
-                  .update({
-                    balance: (user.balance || 0) + creditsReward,
-                    gems: (user.gems || 0) + gemsReward
-                  })
-                  .eq('id', uid);
-      
-                // Mark reward as claimed
-                await supabase.from('quests_status')
-                  .update({ reward_claimed: true })
-                  .eq('user_id', uid)
-                  .eq('quest_id', today)
-                  .eq('reward_claimed', false); // extra safety
-      
-                questText = `🎉 **Quest Completed!**\nReward claimed: **+${creditsReward} credits**${gemsReward > 0 ? `, **+${gemsReward} gems**` : ''}`;
-              } else {
-                questText = `✅ Quest already completed and reward claimed.`;
-              }
+      const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
+
+      const quests = await supabase.storage.from('quests').download('quests.json');
+      let questText = "No active quest today.";
+      if (quests.data) {
+        const text = await quests.data.text();
+        const allQuests = JSON.parse(text);
+
+        const today = new Date().getDate();
+        const quest = allQuests.find(q => q.day === today);
+        if (quest) {
+          const { data: status } = await supabase
+            .from('quests_status')
+            .select('*')
+            .eq('user_id', uid)
+            .eq('quest_id', today)
+            .maybeSingle();
+
+          const target = quest.requirements?.count || quest.requirements?.minutes || 0;
+          const progress = status?.progress || 0;
+          const completed = progress >= target;
+
+          if (completed) {
+            if (!status?.reward_claimed) {
+              const reward = quest.reward || {};
+              const creditsReward = reward.credits || 0;
+              const gemsReward = reward.gems || 0;
+
+              await supabase.from('users')
+                .update({
+                  balance: (user.balance || 0) + creditsReward,
+                  gems: (user.gems || 0) + gemsReward
+                })
+                .eq('id', uid);
+
+              await supabase.from('quests_status')
+                .update({ reward_claimed: true })
+                .eq('user_id', uid)
+                .eq('quest_id', today)
+                .eq('reward_claimed', false);
+
+              questText = `🎉 **Quest Completed!**\nReward claimed: **+${creditsReward} credits**${gemsReward > 0 ? `, **+${gemsReward} gems**` : ''}`;
             } else {
-              questText = `⏳ Quest in progress: ${progress}/${target}`;
+              questText = `✅ Quest already completed and reward claimed.`;
             }
+          } else {
+            questText = `⏳ Quest in progress: ${progress}/${target}`;
           }
         }
-      
-        // 🔹 Fetch inventory with item effects
-        const { data: inv } = await supabase
-          .from('inventory')
-          .select('quantity, shop_items(name, effect)')
-          .eq('user_id', uid);
-      
-        let itemsText = '*(No items owned)*';
-        if (inv && inv.length > 0) {
-          itemsText = inv.map(row => {
-            let effects = '';
-            if (row.shop_items.effect) {
-              effects = row.shop_items.effect
-                .split(',')
-                .map(e => {
-                  const [k, v] = e.split(':');
-                  if (k === 'credits_per_day') return `+${v} 💰/day`;
-                  if (k === 'gems_per_day') return `+${v} 💎/day`;
-                  if (k === 'xp_boost') return `+${v}% XP Boost`;
-                  return `${k}: ${v}`;
-                })
-                .join(', ');
-            }
-            return `**${row.shop_items.name}** x${row.quantity} → *${effects}*`;
-          }).join('\n');
-        }
-      
-        return interaction.reply({
-          embeds: [makeEmbed(
-            '💰 Your Balance',
-            `**Wallet:** ${user?.balance || 0} credits\n**Gems:** ${user?.gems || 0}\n**Bank:** ${user?.bank_balance || 0}\n\n🎯 **Quest Status:**\n${questText}\n\n🎒 **Items Owned:**\n${itemsText}`,
-            0x0099ff
-          )]
-        });
       }
 
+      const { data: inv } = await supabase
+        .from('inventory')
+        .select('quantity, shop_items(name, effect)')
+        .eq('user_id', uid);
 
+      let itemsText = '*(No items owned)*';
+      if (inv && inv.length > 0) {
+        itemsText = inv.map(row => {
+          let effects = '';
+          if (row.shop_items.effect) {
+            effects = row.shop_items.effect
+              .split(',')
+              .map(e => {
+                const [k, v] = e.split(':');
+                if (k === 'credits_per_day') return `+${v} 💰/day`;
+                if (k === 'gems_per_day') return `+${v} 💎/day`;
+                if (k === 'xp_boost') return `+${v}% XP Boost`;
+                return `${k}: ${v}`;
+              })
+              .join(', ');
+          }
+          return `**${row.shop_items.name}** x${row.quantity} → *${effects}*`;
+        }).join('\n');
+      }
+
+      return interaction.reply({
+        embeds: [makeEmbed(
+          '💰 Your Balance',
+          `**Wallet:** ${user?.balance || 0} credits\n**Gems:** ${user?.gems || 0}\n**Bank:** ${user?.bank_balance || 0}\n\n🎯 **Quest Status:**\n${questText}\n\n🎒 **Items Owned:**\n${itemsText}`,
+          0x0099ff
+        )]
+      });
+    }
 
     if (sub === 'bank') {
       const action = interaction.options.getString('action');
@@ -314,8 +337,3 @@ module.exports = {
     }
   }
 };
-
-
-
-
-
