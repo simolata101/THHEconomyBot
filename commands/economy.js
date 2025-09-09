@@ -26,10 +26,15 @@ module.exports = {
 
     if (sub === 'work') {
       const pay = helpers.randomBetween(20, 150);
-      await supabase.from('users').upsert(
-        { id: uid, balance: pay },
-        { onConflict: ['id'], returning: 'minimal' }
-      );
+    
+      // Fetch current balance
+      const { data: user } = await supabase.from('users').select('balance').eq('id', uid).single();
+      const newBalance = (user?.balance || 0) + pay;
+    
+      // Update balance without overwriting existing credits
+      await supabase.from('users')
+        .upsert({ id: uid, balance: newBalance }, { onConflict: ['id'], returning: 'minimal' });
+    
       return interaction.reply({
         embeds: [makeEmbed('💼 Work Complete', `You worked and earned **${pay} credits**!`, 0x00ff00)]
       });
@@ -309,6 +314,7 @@ module.exports = {
     }
   }
 };
+
 
 
 
