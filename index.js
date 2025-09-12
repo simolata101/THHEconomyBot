@@ -258,8 +258,6 @@ cron.schedule('*/10 * * * *', async () => {
   const target = quest.requirements?.minutes || 0;
 
   for (const [userId, joinTime] of vcJoinTimes.entries()) {
-    const minutes = Math.floor((Date.now() - joinTime) / 60000);
-
     // Fetch current progress
     const { data: status, error } = await supabase
       .from('quests_status')
@@ -273,6 +271,14 @@ cron.schedule('*/10 * * * *', async () => {
       continue;
     }
 
+    // 🔧 FIX: compute minutes since *last_updated* (if exists), else fallback to joinTime
+    const lastUpdated = status?.last_updated
+      ? new Date(status.last_updated).getTime()
+      : joinTime;
+
+    const minutes = Math.floor((Date.now() - lastUpdated) / 60000);
+
+    // Accumulate progress safely
     const progress = (status?.progress || 0) + minutes;
     const completed = progress >= target;
 
@@ -298,6 +304,7 @@ cron.schedule('*/10 * * * *', async () => {
     }
   }
 });
+
 
   // 🕒 Cron: every hour (passive income)
   cron.schedule('0 * * * *', async () => {
@@ -599,6 +606,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
