@@ -83,7 +83,7 @@ module.exports = {
       return interaction.reply(`🎲 You rolled a **${roll}**. ${win ? `You win ${reward} credits!` : 'No reward this time.'}`);
     }
 
-    if (sub === 'gamble') {
+        if (sub === 'gamble') {
         const game = interaction.options.getString('game');
         const amount = interaction.options.getInteger('amount');
         const { data: user } = await supabase.from('users').select('*').eq('id', uid).single();
@@ -91,6 +91,12 @@ module.exports = {
         if (!user || amount <= 0 || amount > (user.balance || 0)) {
           return interaction.reply({ content: '❌ Invalid amount', ephemeral: true });
         }
+      
+        // 💳 Deduct bet immediately
+        await supabase.from('users').update({ balance: user.balance - amount }).eq('id', uid);
+      
+        // ⏳ Defer reply so Discord doesn’t timeout
+        await interaction.deferReply();
       
         // 🔒 FIXED WIN CHANCE = 50/50
         let winChance = 0.5;
@@ -107,7 +113,7 @@ module.exports = {
             .setDescription(`Bet: **${amount}** credits\nGuess if it will be **Heads** or **Tails**.`)
             .setColor(0xf1c40f);
       
-          const msg = await interaction.reply({ embeds: [embed], components: [guessRow], fetchReply: true });
+          const msg = await interaction.editReply({ embeds: [embed], components: [guessRow] });
       
           const collector = msg.createMessageComponentCollector({ time: 15000, max: 1 });
           collector.on('collect', async btn => {
@@ -127,7 +133,6 @@ module.exports = {
               resultText = `✅ You guessed **${guess}** and the coin landed on **${flip}**!\nYou win **${amount}** credits.`;
               color = 0x2ecc71;
             } else {
-              await supabase.from('users').update({ balance: user.balance - amount }).eq('id', uid);
               resultText = `❌ You guessed **${guess}**, but it landed on **${flip}**.\nYou lose **${amount}** credits.`;
               color = 0xe74c3c;
             }
@@ -161,7 +166,7 @@ module.exports = {
             .setDescription(`Bet: **${amount}** credits\nPick your move:`)
             .setColor(0x3498db);
       
-          const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
+          const msg = await interaction.editReply({ embeds: [embed], components: [row] });
           const collector = msg.createMessageComponentCollector({ time: 15000, max: 1 });
       
           collector.on('collect', async btn => {
@@ -184,6 +189,7 @@ module.exports = {
       
             let result, color;
             if (playerChoice === botChoice) {
+              await supabase.from('users').update({ balance: user.balance }).eq('id', uid);
               result = `🤝 It's a tie! Your bet is returned.\nYou picked ${emojis[playerChoice]} • Bot picked ${emojis[botChoice]}`;
               color = 0xf1c40f;
             } else if (
@@ -195,7 +201,6 @@ module.exports = {
               result = `✅ You win! You picked ${emojis[playerChoice]} • Bot picked ${emojis[botChoice]}\nGained **${amount}** credits.`;
               color = 0x2ecc71;
             } else {
-              await supabase.from('users').update({ balance: user.balance - amount }).eq('id', uid);
               result = `❌ You lose! You picked ${emojis[playerChoice]} • Bot picked ${emojis[botChoice]}\nLost **${amount}** credits.`;
               color = 0xe74c3c;
             }
@@ -220,7 +225,7 @@ module.exports = {
         // 🗼 TOWER
         if (game === 'tower') {
           let multiplier = 1;
-          const startingBalance = user.balance;
+          const startingBalance = user.balance - amount; // already deducted
       
           // 🔒 FIXED BASE CHANCE
           let baseChance = 0.5;
@@ -236,18 +241,16 @@ module.exports = {
             new ButtonBuilder().setCustomId('cashout').setLabel('Cash Out').setStyle(ButtonStyle.Success)
           );
       
-          const msg = await interaction.reply({ embeds: [baseEmbed()], components: [row], fetchReply: true });
+          const msg = await interaction.editReply({ embeds: [baseEmbed()], components: [row] });
           const collector = msg.createMessageComponentCollector({ time: 30000 });
       
           collector.on('collect', async btn => {
             if (btn.user.id !== uid) return btn.reply({ content: 'Not your game!', ephemeral: true });
       
             if (btn.customId === 'raise') {
-              // 🔒 FIXED 50/50
               let effectiveChance = 0.5;
       
               if (Math.random() > effectiveChance) {
-                await supabase.from('users').update({ balance: startingBalance - amount }).eq('id', uid);
                 const failEmbed = new EmbedBuilder()
                   .setTitle('🗼 Tower Game - Collapsed')
                   .setDescription(`❌ The tower collapsed!\nYou lost **${amount}** credits.`)
@@ -286,6 +289,8 @@ module.exports = {
           return;
         }
       }
+
+
 
 
     // 📈 STOCK
@@ -339,6 +344,7 @@ module.exports = {
 
 
 // NOTE: Removed helpers.shuffleDeck since Blackjack is gone.
+
 
 
 
