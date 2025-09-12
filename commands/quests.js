@@ -42,7 +42,7 @@ function findQuest(id) {
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('quests')
+    .setName('q')
     .setDescription('Quest-related commands')
     .addSubcommand(s =>
       s.setName('status')
@@ -301,5 +301,6 @@ module.exports = {
   getQuests,
   findQuest
 };
+
 
 
