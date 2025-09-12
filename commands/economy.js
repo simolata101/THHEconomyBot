@@ -26,7 +26,7 @@ const cooldowns = new Map();
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('economy')
+    .setName('e')
     .setDescription('Economy commands (work, daily, idle, bank, balance)')
     .addSubcommand(s => s.setName('work').setDescription('Do a job to earn money'))
     .addSubcommand(s => s.setName('daily').setDescription('Claim daily reward'))
@@ -337,3 +337,4 @@ module.exports = {
     }
   }
 };
+
