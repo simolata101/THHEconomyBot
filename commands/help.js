@@ -12,12 +12,12 @@ module.exports = {
         name: 'Economy Commands',
         description: 'Manage your finances and earn rewards',
         commands: [
-          { name: '/economy work', description: 'Work to earn credits' },
-          { name: '/economy daily', description: 'Claim your daily reward' },
-          { name: '/economy hourly', description: 'Claim your hourly reward' },
-          { name: '/economy idle', description: 'Toggle idle earnings' },
-          { name: '/economy balance', description: 'Check your balances and items' },
-          { name: '/economy bank', description: 'Deposit or withdraw from bank' }
+          { name: '/e work', description: 'Work to earn credits' },
+          { name: '/e daily', description: 'Claim your daily reward' },
+          { name: '/e hourly', description: 'Claim your hourly reward' },
+          { name: '/e idle', description: 'Toggle idle earnings' },
+          { name: '/e balance', description: 'Check your balances and items' },
+          { name: '/e bank', description: 'Deposit or withdraw from bank' }
         ],
         color: 0x00ff00,
         emoji: '💰'
@@ -41,9 +41,9 @@ module.exports = {
         name: 'Quests System',
         description: 'Track and complete daily quests',
         commands: [
-          { name: '/quests status', description: 'Check quest progress' },
-          { name: '/quests info', description: 'Get info about a quest' },
-          { name: '/quests claim', description: 'Claim your quest credit' }
+          { name: '/q status', description: 'Check quest progress' },
+          { name: '/q info', description: 'Get info about a quest' },
+          { name: '/q claim', description: 'Claim your quest credit' }
         ],
         color: 0x0099ff,
         emoji: '📜'
@@ -52,13 +52,13 @@ module.exports = {
         name: 'World & Shop',
         description: 'Shop, craft, and manage the economy',
         commands: [
-          { name: '/world quests', description: 'List active quests' },
-          { name: '/world complete', description: 'Complete a quest' },
-          { name: '/world shop', description: 'View shop items' },
-          { name: '/world buy', description: 'Purchase an item' },
-          { name: '/world craft', description: 'Craft items' },
-          { name: '/world collectible', description: 'Mint collectibles' },
-          { name: '/world leaderboard', description: 'View leaderboard' }
+          { name: '/w quests', description: 'List active quests' },
+          { name: '/w complete', description: 'Complete a quest' },
+          { name: '/w shop', description: 'View shop items' },
+          { name: '/w buy', description: 'Purchase an item' },
+          { name: '/w craft', description: 'Craft items' },
+          { name: '/w collectible', description: 'Mint collectibles' },
+          { name: '/w leaderboard', description: 'View leaderboard' }
         ],
         color: 0x9966ff,
         emoji: '🏪'
@@ -162,3 +162,4 @@ module.exports = {
   }
 
 };
+
