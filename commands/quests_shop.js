@@ -3,7 +3,7 @@ const helpers = require('./helpers');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('world')
+    .setName('w')
     .setDescription('Quests, shop, guilds, crafting, collectibles')
     .addSubcommand(s =>
       s.setName('quests').setDescription('List active quests')
@@ -372,6 +372,7 @@ if (sub === 'quests') {
     }
   }
 };
+
 
 
 
