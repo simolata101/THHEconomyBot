@@ -7,26 +7,48 @@ const giveaways = new Map();
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("giveaway")
-    .setDescription("Start a giveaway")
+    .setDescription("Giveaway system")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addIntegerOption(opt =>
-      opt.setName("winners").setDescription("Number of winners").setRequired(true))
-    .addStringOption(opt =>
-      opt.setName("prize").setDescription("Prize description").setRequired(true))
-    .addChannelOption(opt =>
-      opt.setName("channel").setDescription("Channel to post giveaway").setRequired(true))
-    .addStringOption(opt =>
-      opt.setName("duration").setDescription("Duration (e.g. 1h, 30m, 2d, 1w)").setRequired(true))
-    .addRoleOption(opt =>
-      opt.setName("role_required").setDescription("Role required to enter").setRequired(false))
-    .addIntegerOption(opt =>
-      opt.setName("messages_required").setDescription("Messages required to qualify").setRequired(false))
-    .addIntegerOption(opt =>
-      opt.setName("booster_entries").setDescription("Extra entries for server boosters").setRequired(false))
-    .addIntegerOption(opt =>
-      opt.setName("invites_required").setDescription("Invites required to qualify").setRequired(false)),
+    // start subcommand
+    .addSubcommand(sub =>
+      sub
+        .setName("start")
+        .setDescription("Start a giveaway")
+        .addIntegerOption(opt =>
+          opt.setName("winners").setDescription("Number of winners").setRequired(true))
+        .addStringOption(opt =>
+          opt.setName("prize").setDescription("Prize description").setRequired(true))
+        .addChannelOption(opt =>
+          opt.setName("channel").setDescription("Channel to post giveaway").setRequired(true))
+        .addStringOption(opt =>
+          opt.setName("duration").setDescription("Duration (e.g. 1h, 30m, 2d, 1w)").setRequired(true))
+        .addRoleOption(opt =>
+          opt.setName("role_required").setDescription("Role required to enter").setRequired(false))
+        .addIntegerOption(opt =>
+          opt.setName("messages_required").setDescription("Messages required to qualify").setRequired(false))
+        .addIntegerOption(opt =>
+          opt.setName("booster_entries").setDescription("Extra entries for server boosters").setRequired(false))
+        .addIntegerOption(opt =>
+          opt.setName("invites_required").setDescription("Invites required to qualify").setRequired(false))
+    )
+    // end subcommand
+    .addSubcommand(sub =>
+      sub
+        .setName("end")
+        .setDescription("Force end a giveaway early")
+        .addStringOption(opt =>
+          opt.setName("message_id").setDescription("The giveaway message ID").setRequired(true))
+    ),
 
   async execute(interaction, { client, supabase }) {
+    if (interaction.options.getSubcommand() === "start") {
+      await this.startGiveaway(interaction, client, supabase);
+    } else if (interaction.options.getSubcommand() === "end") {
+      await this.forceEndGiveaway(interaction, client, supabase);
+    }
+  },
+
+  async startGiveaway(interaction, client, supabase) {
     const winners = interaction.options.getInteger("winners");
     const prize = interaction.options.getString("prize");
     const channel = interaction.options.getChannel("channel");
@@ -113,76 +135,94 @@ module.exports = {
 
     // End logic
     setTimeout(async () => {
-      const giveaway = giveaways.get(msg.id);
-      if (!giveaway) return;
-
-      const fetchedMsg = await channel.messages.fetch(giveaway.messageId).catch(() => null);
-      if (!fetchedMsg) return;
-      const reaction = fetchedMsg.reactions.cache.get("🎉");
-      if (!reaction) return;
-
-      const users = await reaction.users.fetch();
-      let entrants = [];
-
-      for (const [uid, user] of users) {
-        if (user.bot) continue;
-
-        const member = await channel.guild.members.fetch(uid).catch(() => null);
-        if (!member) continue;
-
-        // Role check
-        if (giveaway.roleRequired && !member.roles.cache.has(giveaway.roleRequired.id)) continue;
-
-        // Progress check
-        const { data: progress, error: progressError } = await supabase
-          .from("giveaway_progress")
-          .select("messages_count, invites_count")
-          .eq("giveaway_id", giveaway.dbId)
-          .eq("user_id", uid)
-          .maybeSingle();
-
-        if (progressError) {
-          console.error("❌ Error fetching progress:", progressError);
-          continue;
-        }
-
-        if (giveaway.messagesRequired && (!progress || progress.messages_count < giveaway.messagesRequired)) {
-          continue; // not enough messages
-        }
-
-        if (giveaway.invitesRequired && (!progress || progress.invites_count < giveaway.invitesRequired)) {
-          continue; // not enough invites
-        }
-
-        // Booster entries
-        let entries = 1;
-        if (member.premiumSince && giveaway.boosterEntries > 1) {
-          entries += (giveaway.boosterEntries - 1);
-        }
-
-        entrants.push(...Array(entries).fill(uid));
-      }
-
-      if (entrants.length === 0) {
-        await channel.send(`❌ No valid entrants for giveaway **${giveaway.prize}**`);
-        giveaways.delete(msg.id);
-        await supabase.from("giveaways").update({ ended: true }).eq("id", giveaway.dbId);
-        return;
-      }
-
-      // Pick winners
-      const winnersPicked = [];
-      for (let i = 0; i < giveaway.winners && entrants.length > 0; i++) {
-        const winnerId = entrants.splice(Math.floor(Math.random() * entrants.length), 1)[0];
-        if (!winnersPicked.includes(winnerId)) winnersPicked.push(winnerId);
-      }
-
-      await channel.send(
-        `🎉 Congratulations ${winnersPicked.map(id => `<@${id}>`).join(", ")}! You won **${giveaway.prize}**!`
-      );
-
-      giveaways.delete(msg.id);
-      await supabase.from("giveaways").update({ ended: true }).eq("id", giveaway.dbId);
+      await this.finishGiveaway(msg.id, client, supabase);
     }, durationMs);
+  },
+
+  async forceEndGiveaway(interaction, client, supabase) {
+    const messageId = interaction.options.getString("message_id");
+
+    if (!giveaways.has(messageId)) {
+      return interaction.reply({
+        content: "❌ Giveaway not found in cache. (Might already be ended or bot restarted.)",
+        ephemeral: true
+      });
+    }
+
+    await this.finishGiveaway(messageId, client, supabase, interaction);
+  },
+
+  async finishGiveaway(messageId, client, supabase, interaction = null) {
+    const giveaway = giveaways.get(messageId);
+    if (!giveaway) return;
+
+    const channel = await client.channels.fetch(giveaway.channelId).catch(() => null);
+    if (!channel) return;
+
+    const fetchedMsg = await channel.messages.fetch(giveaway.messageId).catch(() => null);
+    if (!fetchedMsg) return;
+
+    const reaction = fetchedMsg.reactions.cache.get("🎉");
+    if (!reaction) return;
+
+    const users = await reaction.users.fetch();
+    let entrants = [];
+
+    for (const [uid, user] of users) {
+      if (user.bot) continue;
+
+      const member = await channel.guild.members.fetch(uid).catch(() => null);
+      if (!member) continue;
+
+      // Role check
+      if (giveaway.roleRequired && !member.roles.cache.has(giveaway.roleRequired.id)) continue;
+
+      // Progress check
+      const { data: progress } = await supabase
+        .from("giveaway_progress")
+        .select("messages_count, invites_count")
+        .eq("giveaway_id", giveaway.dbId)
+        .eq("user_id", uid)
+        .maybeSingle();
+
+      if (giveaway.messagesRequired && (!progress || progress.messages_count < giveaway.messagesRequired)) continue;
+      if (giveaway.invitesRequired && (!progress || progress.invites_count < giveaway.invitesRequired)) continue;
+
+      // Booster entries
+      let entries = 1;
+      if (member.premiumSince && giveaway.boosterEntries > 1) {
+        entries += (giveaway.boosterEntries - 1);
+      }
+
+      entrants.push(...Array(entries).fill(uid));
+    }
+
+    if (entrants.length === 0) {
+      await channel.send(`❌ No valid entrants for giveaway **${giveaway.prize}**`);
+      giveaways.delete(messageId);
+      await supabase.from("giveaways").update({ ended: true }).eq("id", giveaway.dbId);
+      if (interaction) {
+        await interaction.reply({ content: "✅ Giveaway force-ended (no winners).", ephemeral: true });
+      }
+      return;
+    }
+
+    // Pick winners
+    const winnersPicked = [];
+    for (let i = 0; i < giveaway.winners && entrants.length > 0; i++) {
+      const winnerId = entrants.splice(Math.floor(Math.random() * entrants.length), 1)[0];
+      if (!winnersPicked.includes(winnerId)) winnersPicked.push(winnerId);
+    }
+
+    await channel.send(
+      `🎉 Congratulations ${winnersPicked.map(id => `<@${id}>`).join(", ")}! You won **${giveaway.prize}**!`
+    );
+
+    giveaways.delete(messageId);
+    await supabase.from("giveaways").update({ ended: true }).eq("id", giveaway.dbId);
+
+    if (interaction) {
+      await interaction.reply({ content: "✅ Giveaway force-ended and winners picked.", ephemeral: true });
+    }
   }
 };
