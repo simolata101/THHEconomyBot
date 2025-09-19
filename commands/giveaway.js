@@ -35,7 +35,7 @@ module.exports = {
     .addSubcommand(sub =>
       sub
         .setName("end")
-        .setDescription("Force end a giveaway early")
+        .setDescription("Force end a giveaway early (or reroll)")
         .addStringOption(opt =>
           opt.setName("message_id").setDescription("The giveaway message ID").setRequired(true))
     ),
@@ -142,18 +142,43 @@ module.exports = {
   async forceEndGiveaway(interaction, client, supabase) {
     const messageId = interaction.options.getString("message_id");
 
-    if (!giveaways.has(messageId)) {
-      return interaction.reply({
-        content: "❌ Giveaway not found in cache. (Might already be ended or bot restarted.)",
-        ephemeral: true
-      });
+    let giveaway = giveaways.get(messageId);
+
+    // ✅ If not in cache, fetch from database
+    if (!giveaway) {
+      const { data, error } = await supabase
+        .from("giveaways")
+        .select("*")
+        .eq("message_id", messageId)
+        .maybeSingle();
+
+      if (error || !data) {
+        return interaction.reply({
+          content: "❌ Giveaway not found in database or invalid message ID.",
+          ephemeral: true,
+        });
+      }
+
+      // Rebuild giveaway object from DB
+      giveaway = {
+        dbId: data.id,
+        messageId: data.message_id,
+        channelId: data.channel_id,
+        prize: data.prize,
+        winners: data.winners,
+        endAt: new Date(data.ends_at).getTime(),
+        roleRequired: data.role_required ? { id: data.role_required } : null,
+        messagesRequired: data.messages_required,
+        invitesRequired: data.invites_required,
+        boosterEntries: data.booster_entries || 1,
+      };
     }
 
-    await this.finishGiveaway(messageId, client, supabase, interaction);
+    await this.finishGiveaway(messageId, client, supabase, interaction, giveaway);
   },
 
-  async finishGiveaway(messageId, client, supabase, interaction = null) {
-    const giveaway = giveaways.get(messageId);
+  async finishGiveaway(messageId, client, supabase, interaction = null, forcedGiveaway = null) {
+    const giveaway = forcedGiveaway || giveaways.get(messageId);
     if (!giveaway) return;
 
     const channel = await client.channels.fetch(giveaway.channelId).catch(() => null);
